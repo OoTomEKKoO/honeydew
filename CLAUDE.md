@@ -124,3 +124,14 @@ Keine Rechtsberatung: bei einer echten Veröffentlichung die Punkte noch einmal 
 (`tools/android-dist.sh --base`), Artifact `honeydew-android-debug` im Actions-Lauf. Sie installiert sich als
 „Honeydew Debug" neben der Original-App. `android/debug.keystore` ist ein bewusst eingecheckter Wegwerf-Debug-Schlüssel
 (Passwort `android`), damit neue Builds über alte installiert werden können. Nie für Releases verwenden.
+
+## UI-Änderungen ohne Sicht
+
+Claude kann die laufende App nicht sehen (keine Anzeige in der Cloud). Layout kommt nur aus dem Code: UI-Tests in
+`src/panels/tests/reference.rs` prüfen Rechtecke, nicht den Eindruck. Deshalb: UI-Wünsche bevorzugt über Screenshots
+und konkrete Beschreibungen des/der Besitzer:in (Handy), nur eine UI-Änderung pro Testbuild, danach Rückmeldung
+einholen. Der erste Prototyp einer UI-Änderung kann ausdrücklich unfertig sein. Idee für später: Panels offscreen zu
+Bildern rendern (`src/ui/offscreen.rs` ist ein Testgerüst dafür) und selbst ansehen.
+
+Stand: GM Synth hat auf FILTER ein neues Dropdown EXTRA (Off/BP/Notch/Comb). Es wurde auf dem Handy getestet und läuft;
+das UI-Layout davon soll noch verbessert werden (Rückmeldung des/der Besitzer:in steht aus).
