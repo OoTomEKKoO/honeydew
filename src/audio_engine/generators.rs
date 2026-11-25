@@ -204,7 +204,8 @@ mod tests {
                 gmsynth::WAVE_B,
                 gmsynth::PB_RANGE,
                 gmsynth::MW_AMOUNT,
-                gmsynth::MW_DEST
+                gmsynth::MW_DEST,
+                gmsynth::FILTER_EXTRA
             ]
         );
     }

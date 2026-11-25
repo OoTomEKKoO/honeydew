@@ -72,6 +72,14 @@ const fn f(name: &'static str, at: usize, n: u32, enc: Enc, default: f32) -> Fie
 }
 
 impl Field {
+    /// The bytes the field takes.
+    fn width(&self) -> usize {
+        match self.enc {
+            Bit | Semitones => 1,
+            Norm | Items(_) | Trunc(_) | Index(_) => 4,
+        }
+    }
+
     /// The setting `bytes` (the blob or chunk payload) hold, clamped into range; `None` when they are too short.
     fn read(&self, bytes: &[u8]) -> Option<f32> {
         let raw = bytes.get(self.at..)?;
@@ -129,6 +137,21 @@ fn put(fields: &[Field], settings: &HashMap<u32, f32>, out: &mut [u8]) {
     }
 }
 
+/// Extends `out` with zeros so that each field `settings` gives a non-default value fits: Honeydew's own fields sit
+/// after a format's original bytes, and a blob only grows to hold one once it is used.
+fn grow(fields: &[Field], settings: &HashMap<u32, f32>, out: &mut Vec<u8>) {
+    for field in fields {
+        let end = field.at + field.width();
+        if out.len() < end
+            && settings
+                .get(&field.n)
+                .is_some_and(|&v| !v.is_nan() && v != field.default)
+        {
+            out.resize(end, 0);
+        }
+    }
+}
+
 /// The payload range of the first chunk `id` in the chunk list `list` (through [`ChunkIter`]).
 fn find(list: &[u8], id: [u8; 4]) -> Option<Range<usize>> {
     let chunk = ChunkIter::new(list, "CSTM")
@@ -178,12 +201,15 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 
 /// GMSynth (2), 20 bytes: OSC `A`/`B` (`1.1`/`1.2`), MOD `PB RANGE` (`6.1`, round(3v) of `1 smt`, `2 smt`,
 /// `7 smt`, `Oct`), `MW AMOUNT` (`7`) and `MW DEST` (`6.2`, int(2v) of `Filter`, `LFO`, `Osc. Mod.`).
+/// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20, written only
+/// once it is not `Off`, so a song that never uses it keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
     f("waveA", 0, 21100, Index(29), 0.0),
     f("waveB", 4, 21200, Index(29), 0.0),
     f("PB RANGE", 8, 36100, Items(4), 1.0),
     f("MW AMOUNT", 12, 37000, Norm, 0.5),
     f("MW DEST", 16, 36200, Trunc(3), 2.0),
+    f("FILTER EXTRA", 20, 16300, Index(4), 0.0),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -428,12 +454,14 @@ pub fn cstm_from_settings(
                 && p.len() >= new.map_or(0, <[u8]>::len)
             {
                 let mut out = p.to_vec();
+                grow(fields, settings, &mut out);
                 put(fields, settings, &mut out);
                 return Some(out);
             }
             let mut values = loaded.map(|(_, s)| s).unwrap_or_default();
             values.extend(settings);
             let mut out = new?.to_vec();
+            grow(fields, &values, &mut out);
             put(fields, &values, &mut out);
             Some(out)
         }
@@ -800,6 +828,7 @@ mod tests {
                     (36100, 2.0),
                     (37000, 0.3),
                     (36200, 1.0),
+                    (16300, 0.0),
                 ]),
             ),
             (
@@ -965,7 +994,7 @@ mod tests {
         let waves = map([(21100, 5.0), (21200, 17.0)]);
         let with = |extra: &[(u32, f32)]| {
             let mut m = waves.clone();
-            m.extend([(36100, 1.0), (37000, 0.5), (36200, 2.0)]);
+            m.extend([(36100, 1.0), (37000, 0.5), (36200, 2.0), (16300, 0.0)]);
             m.extend(extra.iter().copied());
             Some(m)
         };
@@ -982,6 +1011,32 @@ mod tests {
         let mut expected = blob.clone();
         expected.extend(le(&[0.0]));
         assert_eq!(saved, expected);
+    }
+
+    /// Honeydew's own FILTER EXTRA sits after the original 20 bytes: a song that does not use it keeps the original
+    /// blob size (what FL Studio Mobile wrote and reads), and one that does grows by the one field.
+    #[test]
+    fn gmsynth_filter_extra_grows_the_blob_only_when_used() {
+        let off = default_blob(2);
+        assert_eq!(off.len(), 20);
+        let comb = cstm_from_settings(2, &map([(16300, 3.0)]), Some(&off)).unwrap();
+        assert_eq!(comb.len(), 24);
+        assert_eq!(&comb[..20], &off[..]);
+        assert_eq!(settings_from_cstm(2, &comb).unwrap()[&16300], 3.0);
+        // From no blob, and with the other settings kept.
+        let fresh = save(2, &map([(16300, 2.0), (36100, 0.0)]));
+        let loaded = settings_from_cstm(2, &fresh).unwrap();
+        assert_eq!((loaded[&16300], loaded[&36100]), (2.0, 0.0));
+        // Back to Off keeps the blob it has, reading Off; an old 20-byte blob reads Off.
+        let back = cstm_from_settings(2, &map([(16300, 0.0)]), Some(&comb)).unwrap();
+        assert_eq!(settings_from_cstm(2, &back).unwrap()[&16300], 0.0);
+        assert_eq!(settings_from_cstm(2, &off).unwrap()[&16300], 0.0);
+        // Saving Off never grows an original blob.
+        let same = cstm_from_settings(2, &map([(16300, 0.0)]), Some(&off)).unwrap();
+        assert_eq!(same, off);
+        // A hostile value is clamped into the list.
+        let wild = cstm_from_settings(2, &map([(16300, 99.0)]), Some(&off)).unwrap();
+        assert_eq!(settings_from_cstm(2, &wild).unwrap()[&16300], 3.0);
     }
 
     /// Spinners load round(v·(n − 1)) with halves away from zero.

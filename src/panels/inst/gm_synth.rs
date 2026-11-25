@@ -7,6 +7,8 @@ use crate::params::GMSYNTH_WAVESHAPES as WAVESHAPES;
 
 const PB_RANGE: &[&str] = &["1 smt", "2 smt", "7 smt", "Oct"];
 const MW_DEST: &[&str] = &["Filter", "LFO", "Osc. Mod."];
+/// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
+const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
 const TABS: &str = "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX";
 
@@ -19,7 +21,11 @@ pub fn panel() -> Option<Panel> {
             v_slider(13000, "ATTACK").p(25),
             v_slider(14000, "DECAY").p(26),
             v_slider(15000, "AMOUNT").p(27),
-            vstack([toggle(16100, "KBD").p(24), spinner(16200, "KIND").p(23)]),
+            vstack([
+                toggle(16100, "KBD").p(24),
+                spinner(16200, "KIND").p(23),
+                spinner(16300, "EXTRA").items(FILTER_EXTRA),
+            ]),
         ])
         .show(Show::Tab(0)),
         hstack([
@@ -158,8 +164,9 @@ const SHAPES: &str = "Beast · Crunch · Double Spike · Digital · Dirt · Elec
 #[rustfmt::skip]
 pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
-    // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1.
-    settings: &[(21100, 0.0), (21200, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (81100, 0.0)],
+    // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
+    // Honeydew's own FILTER EXTRA (16300) on Off.
+    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -170,8 +177,10 @@ pub const REFERENCE: Reference = Reference {
                 row(13000, Widget::VSlider, "ATTACK", [5.65, 1.25, 2.83, 6.24]).p(25),
                 row(14000, Widget::VSlider, "DECAY", [8.48, 1.25, 2.82, 6.24]).p(26),
                 row(15000, Widget::VSlider, "AMOUNT", [11.30, 1.25, 2.83, 6.24]).p(27),
-                row(16100, Widget::Toggle, "KBD", [14.13, 1.25, 2.82, 3.12]).p(24),
-                row(16200, Widget::Spinner, "KIND", [14.13, 4.37, 2.82, 3.12]).p(23),
+                // Honeydew's own third row (EXTRA) shares the original two rows' column.
+                row(16100, Widget::Toggle, "KBD", [14.13, 1.25, 2.82, 2.08]).p(24),
+                row(16200, Widget::Spinner, "KIND", [14.13, 3.33, 2.82, 2.08]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [14.13, 5.41, 2.82, 2.08]).items("Off · BP · Notch · Comb"),
             ],
             ..Case::DEFAULT
         },

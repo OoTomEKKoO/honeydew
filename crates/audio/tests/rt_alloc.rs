@@ -441,8 +441,8 @@ fn gmsynth_never_allocates_on_the_audio_thread() {
     // Notes (steals, MONO legato and fallback), every param at 0, 0.5, 1 and 0.3, both controllers, the
     // `CSTM` settings on shapes the app thread built (and one past the menu), stop and play, all-notes-off and reset.
     use honeydew_audio::gmsynth::{
-        GmSynth, MOD_WHEEL, MW_AMOUNT, MW_DEST, PARAMS, PB_RANGE, PITCH_BEND, WAVE_A, WAVE_B,
-        prepare_setting,
+        FILTER_EXTRA, GmSynth, MOD_WHEEL, MW_AMOUNT, MW_DEST, PARAMS, PB_RANGE, PITCH_BEND, WAVE_A,
+        WAVE_B, prepare_setting,
     };
     use honeydew_audio::instrument::Instrument;
     let shapes = [3.0, 18.0, 26.0, 29.0];
@@ -456,7 +456,7 @@ fn gmsynth_never_allocates_on_the_audio_thread() {
     let calls = allocator_calls(|| {
         for (n, &frames) in BLOCKS.iter().cycle().take(2000).enumerate() {
             let shape = shapes[n / 7 % shapes.len()];
-            match n % 10 {
+            match n % 11 {
                 0 => synth.note_on(40 + (n % 37) as u8, 0.8, 0.4),
                 1 => synth.note_off(40 + ((n + 27) % 37) as u8),
                 2 => synth.set_parameter(n / 10 % PARAMS, [0.0, 0.5, 1.0, 0.3][n / 750 % 4]),
@@ -466,6 +466,8 @@ fn gmsynth_never_allocates_on_the_audio_thread() {
                 6 => synth.set_setting(MW_DEST, (n % 3) as f32),
                 7 => synth.set_setting(MW_AMOUNT, (n % 5) as f32 / 4.0),
                 8 => synth.set_controller(PITCH_BEND, (n % 9) as f32 / 8.0),
+                // The extra filter types (BP, Notch, Comb) and Off.
+                9 => synth.set_setting(FILTER_EXTRA, (n / 11 % 4) as f32),
                 _ => synth.set_controller(MOD_WHEEL, (n % 6) as f32 / 5.0),
             }
             if n % 500 == 499 {

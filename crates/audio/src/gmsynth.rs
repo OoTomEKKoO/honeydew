@@ -59,6 +59,12 @@ pub const WAVE_B: u32 = 21200;
 pub const PB_RANGE: u32 = 36100;
 pub const MW_AMOUNT: u32 = 37000;
 pub const MW_DEST: u32 = 36200;
+/// Honeydew's extra filter types (not in FL Studio Mobile): item 0 `Off` keeps the FILTER `KIND` param (v23), items
+/// 1–3 `BP`, `Notch` and `Comb` replace it. Kept in the `CSTM` blob after the original 20 bytes.
+pub const FILTER_EXTRA: u32 = 16300;
+const EXTRA_BP: u8 = 1;
+const EXTRA_NOTCH: u8 = 2;
+const EXTRA_COMB: u8 = 3;
 /// PB RANGE items `1 smt`, `2 smt`, `7 smt`, `Oct`; default item 1.
 const PB_RANGES: [f32; 4] = [1.0, 2.0, 7.0, 12.0];
 /// MW DEST items; default Osc. Mod.
@@ -307,6 +313,9 @@ struct Control {
     mw_filter: f32,
     resonance: f32,
     filter_kind: u8,
+    /// [`FILTER_EXTRA`]: 0 uses `filter_kind`.
+    filter_extra: u8,
+    sample_rate: f32,
     /// Master targets: linear level and pan P.
     level: f32,
     pan: f32,
@@ -342,6 +351,8 @@ struct Voice {
     table_a: usize,
     table_b: usize,
     stages: [[f32; STAGES]; 2],
+    /// The `Comb` filter type's delay lines.
+    comb: CombLines,
     noise: u32,
 }
 
@@ -473,21 +484,27 @@ impl Voice {
                 + filter_mod)
                 .clamp(0.0, 1.0);
             let (a, b) = filter.at(cutoff);
-            let feedback = c.resonance * b;
-            let out_l = ladder(
-                &mut self.stages[0],
-                left + noise,
-                a,
-                feedback,
-                c.filter_kind,
-            );
-            let out_r = ladder(
-                &mut self.stages[1],
-                right + noise,
-                a,
-                feedback,
-                c.filter_kind,
-            );
+            let (out_l, out_r) = if c.filter_extra == EXTRA_COMB {
+                // Comb: the delay follows the cutoff's frequency, the resonance sets the feedback.
+                let hz = CUTOFF_HZ * (CUTOFF_OCTAVES * cutoff).exp2();
+                let delay = c.sample_rate / hz;
+                let g = COMB_MIN_FEEDBACK + (COMB_MAX_FEEDBACK - COMB_MIN_FEEDBACK) * c.resonance;
+                let out_l = self.comb.process(0, left + noise, delay, g);
+                let out_r = self.comb.process(1, right + noise, delay, g);
+                self.comb.advance();
+                (out_l, out_r)
+            } else {
+                let kind = match c.filter_extra {
+                    EXTRA_BP => KIND_BP,
+                    EXTRA_NOTCH => KIND_NOTCH,
+                    _ => c.filter_kind,
+                };
+                let feedback = c.resonance * b;
+                (
+                    ladder(&mut self.stages[0], left + noise, a, feedback, kind),
+                    ladder(&mut self.stages[1], right + noise, a, feedback, kind),
+                )
+            };
             // voice = filter out × amp env × gain × pan; gain = clamp(velocity + slide velocity, 0, 1).
             self.gain += SMOOTHING * (velocity - self.gain);
             let gain = amp * self.gain;
@@ -517,7 +534,61 @@ fn ladder(y: &mut [f32; STAGES], x: f32, a: f32, feedback: f32, kind: u8) -> f32
     match kind {
         0 => y[3],
         1 => y[STAGES - 1],
+        // BP: stage 2 minus stage 6 (peaks near the cutoff, 6 dB/oct below it, steeper above).
+        KIND_BP => y[1] - y[5],
+        // Notch: LP 4th order plus HP 1st order (a deep dip just below the cutoff, flat elsewhere).
+        KIND_NOTCH => y[3] + (u - y[0]),
         _ => u - y[0],
+    }
+}
+
+/// The `ladder` kinds of the extra filter types.
+const KIND_BP: u8 = 3;
+const KIND_NOTCH: u8 = 4;
+
+/// The `Comb` type's feedback at resonance 0 and 1 (a comb needs some feedback to ring).
+const COMB_MIN_FEEDBACK: f32 = 0.5;
+const COMB_MAX_FEEDBACK: f32 = 0.95;
+/// Samples per delay line: the lowest comb pitch (32 Hz) at up to 128 kHz.
+const COMB_LEN: usize = 4096;
+
+/// A voice's stereo comb: one feedback delay line per channel, read with a fractional delay.
+#[derive(Clone, Copy)]
+struct CombLines {
+    buf: [[f32; COMB_LEN]; 2],
+    pos: usize,
+}
+
+impl Default for CombLines {
+    fn default() -> Self {
+        Self {
+            buf: [[0.0; COMB_LEN]; 2],
+            pos: 0,
+        }
+    }
+}
+
+impl CombLines {
+    /// y = x + g·y[n − delay] (linear interpolation); the output is scaled by √(1 − g) to keep the level close to the
+    /// other filter types. Call [`Self::advance`] once per sample, after both channels.
+    fn process(&mut self, channel: usize, x: f32, delay: f32, g: f32) -> f32 {
+        let delay = delay.clamp(2.0, (COMB_LEN - 2) as f32);
+        let at = (self.pos + COMB_LEN) as f32 - delay;
+        let i = at as usize;
+        let frac = at - i as f32;
+        let line = &mut self.buf[channel];
+        let (a, b) = (line[i % COMB_LEN], line[(i + 1) % COMB_LEN]);
+        let mut y = x + g * (a + (b - a) * frac);
+        // Keeps silence silent: no denormals ringing in the line.
+        if y.abs() < 1e-20 {
+            y = 0.0;
+        }
+        line[self.pos] = y;
+        y * (1.0 - g).sqrt()
+    }
+
+    fn advance(&mut self) {
+        self.pos = (self.pos + 1) % COMB_LEN;
     }
 }
 
@@ -564,6 +635,8 @@ pub struct GmSynth {
     wheel: f32,
     /// `CSTM`: PB RANGE R in semitones, MW AMOUNT, MW DEST item.
     pb_range: f32,
+    /// `CSTM`: the extra filter type ([`FILTER_EXTRA`]).
+    filter_extra: u8,
     mw_amount: f32,
     mw_dest: usize,
     control: Control,
@@ -605,6 +678,7 @@ impl GmSynth {
             bend: 0.5,
             wheel: 0.0,
             pb_range: PB_RANGES[1],
+            filter_extra: 0,
             mw_amount: 0.5,
             mw_dest: MW_OSC_MOD,
             control: Control::default(),
@@ -750,6 +824,8 @@ impl GmSynth {
         c.mw_filter = mw_filter;
         c.resonance = v[22];
         c.filter_kind = ((2.0 * v[23]) as u8).min(2);
+        c.filter_extra = self.filter_extra;
+        c.sample_rate = sr;
 
         // Master: level dB = 66·v1 − 48 (+ LFO), 0 below −60 dB; P = clamp(v2 + LFO, 0, 1).
         let db = 66.0 * v[1] - 48.0 + lfo_level;
@@ -935,6 +1011,7 @@ impl Instrument for GmSynth {
                 *phase = next(&mut self.rng);
             }
             voice.stages = [[0.0; STAGES]; 2];
+            voice.comb = CombLines::default();
             voice.gain = velocity;
         }
         // B locks to A at retrigger: φ_B = frac(v14 + φ_A·f_B/f_A).
@@ -1065,6 +1142,7 @@ impl Instrument for GmSynth {
             PB_RANGE => self.pb_range = PB_RANGES[(value as usize).min(PB_RANGES.len() - 1)],
             MW_AMOUNT => self.mw_amount = value.clamp(0.0, 1.0),
             MW_DEST => self.mw_dest = (value as usize).min(MW_OSC_MOD),
+            FILTER_EXTRA => self.filter_extra = (value as usize).min(usize::from(EXTRA_COMB)) as u8,
             _ => {}
         }
     }
@@ -1112,6 +1190,82 @@ mod tests {
             assert!((phase + PI).abs() < 1e-4, "c {c}: phase {phase}");
             let gain = b * (a / re.hypot(im)).powi(8);
             assert!((gain - 1.0).abs() < 1e-4, "c {c}: loop gain {gain}");
+        }
+    }
+
+    /// The gain (output RMS over input RMS) of `ladder` kind `kind` for a sine of `w` rad/sample, after it settles.
+    fn gain(kind: u8, a: f32, w: f32) -> f32 {
+        let mut y = [0.0; STAGES];
+        let (mut input, mut output) = (0.0, 0.0);
+        for n in 0..40_000 {
+            let x = 0.1 * (w * n as f32).sin();
+            let out = ladder(&mut y, x, a, 0.0, kind);
+            if n >= 20_000 {
+                input += x * x;
+                output += out * out;
+            }
+        }
+        (output / input).sqrt()
+    }
+
+    #[test]
+    fn bandpass_passes_the_cutoff_region_and_cuts_both_sides() {
+        let (a, _) = FILTER_TABLE.get_or_init(FilterTable::build).at(0.3);
+        let wc = -(1.0 - a).ln();
+        let at = |ratio: f32| gain(KIND_BP, a, wc * ratio);
+        let centre = at(0.47);
+        assert!((0.8..=1.3).contains(&centre), "centre {centre}");
+        assert!(at(0.01) < 0.1 * centre, "low {}", at(0.01));
+        assert!(at(30.0) < 0.1 * centre, "high {}", at(30.0));
+    }
+
+    #[test]
+    fn notch_cuts_one_spot_and_leaves_the_rest() {
+        let (a, _) = FILTER_TABLE.get_or_init(FilterTable::build).at(0.3);
+        let wc = -(1.0 - a).ln();
+        let at = |ratio: f32| gain(KIND_NOTCH, a, wc * ratio);
+        assert!(at(0.6) < 0.1, "dip {}", at(0.6));
+        assert!((at(0.01) - 1.0).abs() < 0.1, "low {}", at(0.01));
+        assert!((at(30.0) - 1.0).abs() < 0.1, "high {}", at(30.0));
+    }
+
+    #[test]
+    fn comb_echoes_after_its_delay_with_the_feedback() {
+        let mut comb = CombLines::default();
+        let (delay, g) = (100.0, 0.5);
+        let out: Vec<f32> = (0..250)
+            .map(|n| {
+                let y = comb.process(0, if n == 0 { 1.0 } else { 0.0 }, delay, g);
+                comb.advance();
+                y
+            })
+            .collect();
+        let scale = (1.0_f32 - g).sqrt();
+        assert!((out[0] - scale).abs() < 1e-6);
+        assert!((out[100] - g * scale).abs() < 1e-6, "{}", out[100]);
+        assert!((out[200] - g * g * scale).abs() < 1e-6, "{}", out[200]);
+        assert!(out[1..100].iter().all(|&y| y == 0.0));
+    }
+
+    #[test]
+    fn every_extra_filter_type_sounds_and_stays_finite() {
+        let render = |extra: f32| {
+            let mut synth = GmSynth::new(RATE);
+            synth.set_setting(FILTER_EXTRA, extra);
+            synth.note_on(60, 1.0, 0.5);
+            let (mut left, mut right) = (vec![0.0; 4800], vec![0.0; 4800]);
+            synth.process(&mut left, &mut right, STOPPED);
+            assert!(left.iter().chain(&right).all(|x| x.is_finite()), "{extra}");
+            left
+        };
+        let off = render(0.0);
+        for extra in [1.0, 2.0, 3.0] {
+            let out = render(extra);
+            assert!(
+                out.iter().any(|&x| x.abs() > 1e-4),
+                "type {extra} is silent"
+            );
+            assert!(out != off, "type {extra} sounds like Off");
         }
     }
 
