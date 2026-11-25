@@ -91,6 +91,14 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
 
 ## Arbeitsweise in diesem Fork
 
+- **Der/die Besitzer:in arbeitet ausschließlich auf Android, ohne Computer.** Alles muss über Claude (Cloud) und
+  GitHub laufen. Ausprobieren geschieht über eine Android-APK, die per GitHub Actions gebaut wird
+  (Debug-APK: `tools/android-dist.sh`, braucht keinen Release-Schlüssel; die Release-Workflow-Datei verlangt
+  Signatur-Secrets) oder über die Web-Version. Bevor ein Feature als „fertig" gilt: Tests grün, CI grün, APK gebaut.
+  Anleitungen für den/die Besitzer:in deshalb immer für das Handy formulieren (GitHub-App/Browser, APK installieren).
+- In der Cloud-Umgebung fehlen ALSA-Entwicklerbibliotheken: `cargo check` scheitert dort an `alsa-sys`, bis
+  `libasound2-dev` (u. a., siehe CI) installiert ist.
+
 - Entwicklung auf einem Feature-Branch, nie direkt auf `main`. Aktueller Arbeitsbranch der Session steht im
   Session-Prompt (z. B. `claude/honeydew-fork-setup-…`).
 - Pull Requests nur auf ausdrücklichen Wunsch.
