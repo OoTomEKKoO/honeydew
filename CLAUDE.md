@@ -91,6 +91,13 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
 
 ## Arbeitsweise in diesem Fork
 
+- **Fokus: ausschließlich Android.** Ziel ist die beste DAW für Android, perfekt darauf optimiert (Touch-Bedienung,
+  Audio-Latenz, Akku/CPU, Speicher). Windows, macOS, iOS, Linux und Web sind erstmal außen vor: Ihre Builds und
+  Prüfungen laufen nicht automatisch (Windows/macOS-Job in `ci.yml` nur manuell). Der gemeinsame Code soll aber
+  weiter kompilieren, solange das wenig kostet (CI-Linux-Job: fmt, clippy, test, wasm-Check), damit Änderungen
+  des Upstream-Projekts später übernommen werden können. Android-spezifisches darf `cfg(target_os = "android")`
+  nutzen.
+
 - **Der/die Besitzer:in arbeitet ausschließlich auf Android, ohne Computer.** Alles muss über Claude (Cloud) und
   GitHub laufen. Ausprobieren geschieht über eine Android-APK, die per GitHub Actions gebaut wird
   (Debug-APK: `tools/android-dist.sh`, braucht keinen Release-Schlüssel; die Release-Workflow-Datei verlangt

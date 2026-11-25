@@ -4,6 +4,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,7 +34,9 @@ jobs:
       - name: Content tool
         run: cargo test --manifest-path tools/content-build/Cargo.toml
 
+  # Windows and macOS runs are off for this fork (it targets Android): only by hand (Actions > CI > Run workflow).
   native-multicore:
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
