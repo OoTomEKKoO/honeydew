@@ -103,3 +103,24 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
   Session-Prompt (z. B. `claude/honeydew-fork-setup-…`).
 - Pull Requests nur auf ausdrücklichen Wunsch.
 - Pro Feature: kleine, einzeln lauffähige Schritte, jeder Schritt = ein Commit.
+
+## Lizenz (GPL-3.0-or-later) – Merkzettel für später
+
+Der Fork ist ein Derivat eines GPL-3.0-Projekts. Wer die App (APK, Web-Build, …) weitergibt, muss:
+- die Lizenz GPL-3.0-or-later beibehalten (`LICENSE`), Copyright-Hinweise nicht entfernen, eigene Änderungen als
+  solche kenntlich machen (Git-Verlauf genügt) und den vollständigen Quellcode der verteilten Version bereitstellen
+  (z. B. Link auf diesen Fork/Tag). Der eigene Code muss ebenfalls GPL-3.0-or-later sein.
+- `THIRD_PARTY_NOTICES.md` und die Sound-Credits (App: Settings → Sound credits) mitliefern. Einige Sounds sind
+  CC BY 3.0, das Icon („Melon" von afitrose) verlangt Namensnennung.
+- Nicht mit „FL Studio" werben; der Haftungsausschluss in `README.md` („About") bleibt. Keine FL-Studio-Mobile-Inhalte
+  (Sounds, Presets, Artwork) einbauen oder verteilen. Beim öffentlichen Veröffentlichen prüfen, ob der Name
+  „Honeydew" und das Branding übernommen werden dürfen/sollen.
+- Neue Abhängigkeiten nur mit GPL-kompatibler Lizenz (siehe Abschnitt Konventionen).
+Keine Rechtsberatung: bei einer echten Veröffentlichung die Punkte noch einmal prüfen.
+
+## Android-Testbuild
+
+`.github/workflows/android-debug.yml` baut bei jedem Push auf `claude/**` (und manuell) eine Debug-APK ohne Sounds
+(`tools/android-dist.sh --base`), Artifact `honeydew-android-debug` im Actions-Lauf. Sie installiert sich als
+„Honeydew Debug" neben der Original-App. `android/debug.keystore` ist ein bewusst eingecheckter Wegwerf-Debug-Schlüssel
+(Passwort `android`), damit neue Builds über alte installiert werden können. Nie für Releases verwenden.
