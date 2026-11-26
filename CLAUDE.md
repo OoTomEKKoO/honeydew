@@ -142,3 +142,29 @@ Bildern rendern (`src/ui/offscreen.rs` ist ein Testgerüst dafür) und selbst an
 
 Stand: GM Synth hat auf FILTER ein neues Dropdown EXTRA (Off/BP/Notch/Comb). Es wurde auf dem Handy getestet und läuft;
 das UI-Layout davon soll noch verbessert werden (Rückmeldung des/der Besitzer:in steht aus).
+
+## Roadmap (vereinbart mit dem/der Besitzer:in, Android-Hochformat im Fokus)
+
+Jeder Schritt = eigener Build zum Testen auf dem Handy, danach Rückmeldung. UI muss zum Stil von FL Mobile/Honeydew
+passen (Farben, Schriften, Abstände der bestehenden Panels; nichts Überlappendes, touchfreundliche Flächen).
+
+1. **GM-Synth-Layout im Hochformat.** `KIND`/`EXTRA` überlappen (Spinner-Beschriftung vs. Pfeile, EXTRA-Zeile zu eng:
+   Reihe auf FILTER hat 3 Zeilen in 6.24 U) – reparieren. Neu: **zwei Tabs gleichzeitig übereinander** anzeigen
+   (z. B. MOD + OSC oder zwei beliebige), die beiden sichtbaren Tabs lassen sich durchschalten/wählen. Karte im
+   Hochformat entsprechend höher (Vorbild: `SOUNDFONT_PORTRAIT` in `src/ui/rack.rs`; `ui_height(type_id)` ist bisher
+   nur pro Typ statisch, `card_height(module)` bekommt das Modul).
+2. **Wellenform-Vorschau pro Oszillator (A und B), hochwertig und reaktiv** (folgt Auswahl, später Custom-Welle, Pitch/
+   Phase B/Balance), eingebettet im Stil des Moduls (Display via `.draw(fn)` wie in `src/panels/inst/three_osc.rs`;
+   Daten aus `crates/audio/src/gm_waveshapes.rs`). Vorbereitung für späteren Wavetable-Einbau.
+3. **Envelope-/LFO-Vorschau** im GM Synth (Anzeige, wie 3x Osc).
+4. **Custom-Wellenformen aus WAV-Dateien** für Osc A und B (Vorbild: `three_osc::osc::Wave::custom`; Welle auf dem
+   App-Thread bauen wie `gmsynth::prepare_setting`; Pfad im Song speichern; in ZIP-Export aufnehmen).
+5. **Modulator-Modul ausbauen** (`crates/audio/src/modulator.rs`, `src/panels/fx/modulator.rs`, Typ 1005): grafische
+   Envelope(s) wie im 3x Osc, **direkt per Finger editierbar** (Punkte ziehen, antippen = neuer Punkt, lang drücken =
+   löschen) statt Hebel, frei auf beliebige Parameter gemappt über das bestehende Map-System (`Modulation`, Menü ≡ der
+   Karte). Das Signal gilt pro Kanal (nicht pro Taste). Zu klären: Wie wird die Envelope ausgelöst (Note-on, loop,
+   tempo-synchron)? Der Modulator ist ein Effekt und bekommt evtl. keine Noten – prüfen.
+6. **Klang des Filters** (wirkt „steril"): Drive/Sättigung vor dem Filter, Resonanzverhalten, minimale analoge
+   Unregelmäßigkeiten; nach Gehör des/der Besitzer:in.
+
+Erledigt: GM Synth `EXTRA`-Filter (Off/BP/Notch/Comb), Android-Debug-Build per GitHub Actions.
