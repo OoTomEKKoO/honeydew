@@ -71,6 +71,15 @@ pub fn vstack(children: impl IntoIterator<Item = Part>) -> Part {
     part(PartKind::VStack(children.into_iter().collect()))
 }
 
+/// Pages under tab strips: the `upper` strip over the first page, and with two pages at once ([`PanelState::dual_tabs`])
+/// the `lower` strip (its id [`LOWER_TABS`]) over the second. `pages` are indexed by the strips' tabs.
+pub fn pager(upper: Part, lower: Part, pages: Vec<Part>) -> Part {
+    part(PartKind::Pager {
+        strips: [Box::new(upper), Box::new(lower)],
+        pages,
+    })
+}
+
 pub fn layer(children: impl IntoIterator<Item = Part>) -> Part {
     part(PartKind::Layer(children.into_iter().collect()))
 }
@@ -410,6 +419,10 @@ pub struct Case {
     pub name: &'static str,
     /// The selected page of the tab strip.
     pub tab: usize,
+    /// Two pages at once ([`PanelState::dual_tabs`]): the page under the lower strip.
+    pub lower: Option<usize>,
+    /// The content's height in U where it is not the reference's (a tall card).
+    pub height: Option<f32>,
     /// Params set before the layout, `(index, normalised value)`; the others are at their registry defaults.
     pub params: &'static [(usize, f32)],
     /// Settings of controls without a param, `(#n, value)`; the others are at their defaults.
@@ -425,6 +438,8 @@ impl Case {
     pub const DEFAULT: Self = Self {
         name: "default",
         tab: 0,
+        lower: None,
+        height: None,
         params: &[],
         settings: &[],
         flags: &[],

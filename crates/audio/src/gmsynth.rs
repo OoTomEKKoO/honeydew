@@ -162,6 +162,14 @@ fn shape(slot: usize) -> Option<Arc<Wavetable>> {
     Some(Arc::clone(built))
 }
 
+/// App thread: one cycle of menu slot `slot` with its lowest `harmonics` partials (1 to 512), 1024 samples, for a
+/// display; `None` past the menu. Builds the slot's tables on first use, as [`prepare_setting`] does.
+pub fn preview_cycle(slot: usize, harmonics: usize) -> Option<Vec<f32>> {
+    let wave = shape(slot)?;
+    let table = wave.table(harmonics.clamp(1, crate::gm_waveshapes::TABLES) - 1);
+    Some(table.to_vec())
+}
+
 /// Any thread: `slot`'s tables if they are built. Never builds, allocates or blocks.
 fn cached(slot: usize) -> Option<Arc<Wavetable>> {
     SHAPES.get(slot)?.get().cloned()
@@ -1267,6 +1275,22 @@ mod tests {
             );
             assert!(out != off, "type {extra} sounds like Off");
         }
+    }
+
+    #[test]
+    fn every_menu_slot_has_a_display_cycle_and_nothing_past_it() {
+        for slot in 0..SLOTS {
+            let cycle = preview_cycle(slot, 48).unwrap_or_else(|| panic!("slot {slot}"));
+            assert_eq!(cycle.len(), crate::gm_waveshapes::TABLE_LEN);
+            assert!(cycle.iter().all(|v| v.is_finite()), "slot {slot}");
+            assert!(cycle.iter().any(|v| v.abs() > 0.1), "slot {slot} is flat");
+        }
+        assert!(preview_cycle(SLOTS, 48).is_none());
+        // A sine has one partial: more harmonics change nothing; a saw gets sharper with them.
+        let sine = |h| preview_cycle(crate::gm_waveshapes::SINE, h).unwrap();
+        assert_eq!(sine(1), sine(48));
+        let saw = |h| preview_cycle(crate::gm_waveshapes::SAW, h).unwrap();
+        assert!(saw(48) != saw(4));
     }
 
     #[test]

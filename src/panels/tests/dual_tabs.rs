@@ -1,82 +1,89 @@
-//! Two pages at once on a tab strip (the GMSynth in a portrait phone window): which pages a tap leaves shown, and
-//! that both pages are laid out, one above the other.
+//! Two pages at once, each under a tab strip of its own (the GMSynth in a portrait phone window): what a pick on a
+//! strip does, and that both pages are laid out one above the other.
+
+use std::collections::HashMap;
 
 use eframe::egui::{Rect, pos2};
 
 use super::U;
-use crate::panels::{PanelState, panel_for, place};
+use crate::panels::{LOWER_TABS, PanelState, panel_for, place};
 use crate::song::ModuleInstance;
 
-/// The GMSynth's card content in a portrait phone window: 17 U wide, 13 U high.
+/// The GMSynth's card content in a portrait phone window: 17 U wide, 14 U high.
 const RECT: Rect = Rect {
     min: pos2(0.0, 0.0),
-    max: pos2(17.0 * U, 13.0 * U),
+    max: pos2(17.0 * U, 14.0 * U),
 };
 
-fn shown(state: &PanelState) -> Vec<u32> {
+fn rects(state: &PanelState) -> HashMap<u32, Rect> {
     let panel = panel_for(2).unwrap();
     let module = ModuleInstance::new(2, 1);
-    let leaves = place(panel, &module, state, RECT, U);
-    leaves.iter().map(|(leaf, _)| leaf.id).collect()
-}
-
-#[test]
-fn a_tap_adds_a_page_and_drops_the_one_before_the_last() {
-    let mut state = PanelState {
-        dual_tabs: true,
-        tab: 0,
-        tab2: Some(1),
-        ..PanelState::default()
-    };
-    // Page 3 joins page 0 as the newest; page 1, the oldest, drops.
-    assert!(state.tap_tab(3));
-    assert_eq!((state.tab, state.tab2), (3, Some(0)));
-}
-
-#[test]
-fn a_tap_on_a_shown_page_hides_it_but_never_the_last_page() {
-    let mut state = PanelState {
-        dual_tabs: true,
-        tab: 2,
-        tab2: Some(5),
-        ..PanelState::default()
-    };
-    // The other page stays, whichever of the two was tapped.
-    assert!(state.tap_tab(5));
-    assert_eq!((state.tab, state.tab2), (2, None));
-    // The last page cannot be hidden.
-    assert!(!state.tap_tab(2));
-    assert_eq!((state.tab, state.tab2), (2, None));
-    // A page tapped while one is shown joins it.
-    assert!(state.tap_tab(4));
-    assert_eq!((state.tab, state.tab2), (4, Some(2)));
-    // The newest page leaving keeps the older one.
-    assert!(state.tap_tab(4));
-    assert_eq!((state.tab, state.tab2), (2, None));
-}
-
-#[test]
-fn both_pages_are_shown_one_above_the_other_in_tab_order() {
-    let mut state = PanelState {
-        dual_tabs: true,
-        tab: 1,
-        tab2: Some(0),
-        ..PanelState::default()
-    };
-    let panel = panel_for(2).unwrap();
-    let module = ModuleInstance::new(2, 1);
-    let rects: std::collections::HashMap<u32, Rect> = place(panel, &module, &state, RECT, U)
+    place(panel, &module, state, RECT, U)
         .into_iter()
         .map(|(leaf, rect)| (leaf.id, rect))
-        .collect();
-    // FILTER (CUTOFF 11000) is page 0, OSC (A, 21100) page 1: FILTER sits on top, OSC below, neither overlapping.
-    let (filter, osc) = (rects[&11000], rects[&21100]);
-    assert!(filter.bottom() <= osc.top(), "{filter:?} {osc:?}");
-    // The tab strip is above both, and only those two pages are laid out.
-    assert!(rects[&0].bottom() <= filter.top());
-    assert!(!rects.contains_key(&31000), "the MOD page is hidden");
-    // Without two pages at once only the selected page shows.
+        .collect()
+}
+
+fn dual(tab: usize, tab2: usize) -> PanelState {
+    PanelState {
+        dual_tabs: true,
+        tab,
+        tab2: Some(tab2),
+        ..PanelState::default()
+    }
+}
+
+#[test]
+fn each_strip_picks_the_page_under_it() {
+    let mut state = dual(0, 1);
+    assert!(state.pick_tab(false, 3));
+    assert_eq!((state.tab, state.tab2), (3, Some(1)));
+    assert!(state.pick_tab(true, 5));
+    assert_eq!((state.tab, state.tab2), (3, Some(5)));
+    // Picking the page a strip already shows changes nothing.
+    assert!(!state.pick_tab(true, 5));
+    assert!(!state.pick_tab(false, 3));
+}
+
+#[test]
+fn a_page_picked_on_the_other_strip_swaps_the_two() {
+    let mut state = dual(2, 6);
+    // The upper strip picks the lower page: they trade places.
+    assert!(state.pick_tab(false, 6));
+    assert_eq!((state.tab, state.tab2), (6, Some(2)));
+    // The lower strip picks the upper page: again.
+    assert!(state.pick_tab(true, 6));
+    assert_eq!((state.tab, state.tab2), (2, Some(6)));
+}
+
+#[test]
+fn both_pages_show_under_their_strips_in_slot_order() {
+    // MOD (2) on top, FILTER (0) below: the slots, not the tab order, give the order.
+    let state = dual(2, 0);
+    let r = rects(&state);
+    let (upper_strip, lower_strip) = (r[&0], r[&LOWER_TABS]);
+    let (top_page, bottom_page) = (r[&31000], r[&11000]);
+    assert!(
+        upper_strip.bottom() <= top_page.top(),
+        "{upper_strip:?} {top_page:?}"
+    );
+    assert!(
+        top_page.bottom() <= lower_strip.top(),
+        "{top_page:?} {lower_strip:?}"
+    );
+    assert!(
+        lower_strip.bottom() <= bottom_page.top(),
+        "{lower_strip:?} {bottom_page:?}"
+    );
+    // Only those two pages are laid out.
+    assert!(!r.contains_key(&21100), "the OSC page is hidden");
+}
+
+#[test]
+fn one_page_and_one_strip_without_two_at_once() {
+    let mut state = dual(1, 0);
     state.dual_tabs = false;
-    let ids = shown(&state);
-    assert!(ids.contains(&21100) && !ids.contains(&11000));
+    let r = rects(&state);
+    assert!(r.contains_key(&21100) && !r.contains_key(&11000));
+    assert!(!r.contains_key(&LOWER_TABS), "no lower strip");
 }

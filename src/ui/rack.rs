@@ -139,8 +139,8 @@ const COMMON: [(i32, ParamSpec); 3] = [
 const SOUNDFONT_PHONE: f32 = 11.0;
 const SOUNDFONT_PORTRAIT: f32 = 15.0;
 /// The GMSynth's card height in a portrait phone window, where its tab strip shows two pages at once, one above the
-/// other: the strip and two pages of about 6 U, the height a page has in the landscape card.
-const GMSYNTH_PORTRAIT: f32 = 15.0;
+/// other, each under its own tab strip: two strips and two pages of about 5.7 U, close to a landscape card's page.
+const GMSYNTH_PORTRAIT: f32 = 16.0;
 /// The shorter side of a phone-size window: phones are about 16 U across (U = 1/6 inch), tablets and a 1280 × 800
 /// desktop window 25 U or more.
 const PHONE_SIDE: f32 = 20.0;
@@ -2537,8 +2537,9 @@ impl RackPanel {
                 .insert(soundfont_player::TWO_ROWS, usize::from(two_rows));
         }
         if module.type_id == SynthKind::GmSynth.type_id() {
-            // Two pages at once while the card is tall: switching it on shows a second page beside the shown one.
-            if self.gmsynth_dual && !state.dual_tabs && state.tab2.is_none() {
+            // Two pages at once while the card is tall: switching it on shows a second page under the shown one, and
+            // the two strips never show the same page.
+            if self.gmsynth_dual && state.tab2.is_none_or(|t| t == state.tab) {
                 state.tab2 = Some(usize::from(state.tab == 0));
             }
             state.dual_tabs = self.gmsynth_dual;

@@ -198,6 +198,10 @@ fn controls(part: &Part, never: bool) -> Vec<(&Part, &Leaf, bool)> {
         PartKind::HStack(c) | PartKind::VStack(c) | PartKind::Layer(c) => {
             c.iter().flat_map(|c| controls(c, never)).collect()
         }
+        PartKind::Pager { strips, pages } => (strips.iter().map(|s| &**s))
+            .chain(pages)
+            .flat_map(|c| controls(c, never))
+            .collect(),
     }
 }
 
@@ -250,6 +254,7 @@ fn compare_case(
     case: &Case,
 ) -> Vec<String> {
     let what = format!("{} [{}]", spec.display_name, case.name);
+    let h = case.height.unwrap_or(h);
     let mut module = ModuleInstance::new(spec.id, 2);
     for &(p, v) in case.params {
         *module
@@ -259,6 +264,8 @@ fn compare_case(
     }
     let mut state = PanelState::new(panel);
     state.tab = case.tab;
+    state.dual_tabs = case.lower.is_some();
+    state.tab2 = case.lower;
     state.settings.extend(case.settings.iter().copied());
     state.flags.extend(case.flags.iter().copied());
     // Whole pixels, as the card gives them: 16.96 × 100 in f32 is 1695.9999, 1 px short.

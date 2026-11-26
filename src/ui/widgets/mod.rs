@@ -72,7 +72,7 @@ pub use button::{Button, button};
 pub use fader::CAP_W as FADER_CAP_W;
 pub use fader::{UNITY, below_cap, fader, fader_track};
 pub use knob::{knob, strip_knob};
-pub use list::{Bar, ItemList, item_list, item_list_index, item_list_marked};
+pub use list::{Bar, ItemList, item_list, item_list_index};
 pub use menu_button::menu_button;
 pub use plain::{display_area, separator, text_label};
 pub use slider::{h_slider, v_slider};

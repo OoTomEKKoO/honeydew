@@ -108,7 +108,7 @@ impl Show {
         match *self {
             Self::Always => true,
             Self::Never => false,
-            Self::Tab(k) => state.tab == k || (state.dual_tabs && state.tab2 == Some(k)),
+            Self::Tab(k) => state.tab == k,
             Self::Item(p, k) => item(module, p) == Some(k),
             Self::Setting(n, k) => state.settings.get(&n).map(|&v| setting_item(v)) == Some(k),
             Self::Above(p, x) => module.params.get(p).is_some_and(|&v| v > x),
@@ -369,6 +369,13 @@ pub enum PartKind {
     VStack(Vec<Part>),
     Layer(Vec<Part>),
     Leaf(Leaf),
+    /// Pages with their tab strips: one page under the first strip, or with [`PanelState::dual_tabs`] two pages, each
+    /// under a strip of its own (the `strips`, upper and lower, which pick `tab` and `tab2`). Which page shows is the
+    /// state's, not a [`Show`]; the page tree is laid out as a vertical stack.
+    Pager {
+        strips: [Box<Part>; 2],
+        pages: Vec<Part>,
+    },
 }
 
 /// A node of a panel tree.
@@ -384,6 +391,9 @@ pub struct Part {
 /// and returns the params to send: those whose value it actually changed, and those it re-applies unchanged (the Note
 /// Echo's delay on a Sync toggle).
 pub type Hook = fn(&mut ModuleInstance, &mut PanelState, edited: &[u32]) -> Vec<usize>;
+
+/// The control id of a [`PartKind::Pager`]'s lower tab strip: the strip of the second page while two show at once.
+pub const LOWER_TABS: u32 = 1;
 
 /// A module-drawn display, drawn in tree order in place of the placeholder: given the
 /// leaf's widget id (for input and egui temp data, such as animation memory), its rect (points) and the leaf's ink
@@ -452,6 +462,10 @@ impl Part {
             PartKind::HStack(c) | PartKind::VStack(c) | PartKind::Layer(c) => {
                 c.iter().flat_map(Part::leaves).collect()
             }
+            PartKind::Pager { strips, pages } => (strips.iter().map(|s| &**s))
+                .chain(pages)
+                .flat_map(Part::leaves)
+                .collect(),
         }
     }
 }
@@ -537,16 +551,22 @@ impl PanelState {
         state
     }
 
-    /// A tap on tab `i` with two pages shown at once: a page not shown joins and the one before the last drops; a
-    /// shown page leaves (the other stays), but never the last page. Returns whether the pages changed.
-    pub fn tap_tab(&mut self, i: usize) -> bool {
+    /// Tab `k` picked on the upper (`lower` false) or the lower strip while two pages show: that strip's page becomes
+    /// `k`, and when the other strip showed `k` the two pages swap places. Returns whether the pages changed.
+    pub fn pick_tab(&mut self, lower: bool, k: usize) -> bool {
         let before = (self.tab, self.tab2);
-        match self.tab2 {
-            Some(other) if i == self.tab => (self.tab, self.tab2) = (other, None),
-            Some(other) if i == other => self.tab2 = None,
-            Some(_) | None if i == self.tab => {}
-            _ => (self.tab2, self.tab) = (Some(self.tab), i),
-        }
+        let (own, other) = if lower {
+            (self.tab2.unwrap_or(self.tab), self.tab)
+        } else {
+            (self.tab, self.tab2.unwrap_or(self.tab))
+        };
+        let (upper, lower_page) = match (lower, k == other) {
+            (false, false) => (k, other),
+            (false, true) => (k, own),
+            (true, false) => (other, k),
+            (true, true) => (own, k),
+        };
+        (self.tab, self.tab2) = (upper, Some(lower_page));
         (self.tab, self.tab2) != before
     }
 
@@ -596,6 +616,26 @@ fn node<'a>(
         PartKind::Leaf(leaf) => {
             leaves.push(leaf);
             Node::leaf((leaves.len() - 1) as NodeId)
+        }
+        PartKind::Pager { strips, pages } => {
+            // The pages shown, each under its strip: the state's page (and the second one with two at once).
+            let shown: Vec<(&Part, &Part)> = match (state.dual_tabs, state.tab2) {
+                (true, Some(lower)) => vec![(&*strips[0], state.tab), (&*strips[1], lower)],
+                _ => vec![(&*strips[0], state.tab)],
+            }
+            .into_iter()
+            .filter_map(|(strip, page)| Some((strip, pages.get(page)?)))
+            .collect();
+            let stacks: Vec<Node> = shown
+                .into_iter()
+                .map(|(strip, page)| {
+                    Node::vstack(vec![
+                        node(strip, module, state, leaves),
+                        node(page, module, state, leaves),
+                    ])
+                })
+                .collect();
+            Node::vstack(stacks)
         }
     };
     Node {
@@ -852,17 +892,22 @@ pub fn show(
                 press(ui, &response, true, value)
             }
             Widget::TextToggle => widgets::text_toggle(ui, cx, &c, value!()).changed(),
-            Widget::Tabs if state.dual_tabs => {
-                let names = item_names(&label);
-                let list = ItemList::new(id, rect, &names, Bar::Bottom, ink);
-                let (_, tapped) =
-                    widgets::item_list_marked(ui, cx, &list, state.tab, state.tab2, false);
-                tapped.is_some_and(|i| state.tap_tab(i))
-            }
             Widget::Tabs => {
                 let names = item_names(&label);
                 let list = ItemList::new(id, rect, &names, Bar::Bottom, ink);
-                widgets::item_list_index(ui, cx, &list, &mut state.tab).changed()
+                if state.dual_tabs {
+                    // Two strips: the lower one (`LOWER_TABS`) picks the lower page.
+                    let lower = leaf.id == LOWER_TABS;
+                    let mut page = if lower {
+                        state.tab2.unwrap_or(state.tab)
+                    } else {
+                        state.tab
+                    };
+                    let changed = widgets::item_list_index(ui, cx, &list, &mut page).changed();
+                    changed && state.pick_tab(lower, page)
+                } else {
+                    widgets::item_list_index(ui, cx, &list, &mut state.tab).changed()
+                }
             }
             Widget::Text => {
                 let font = leaf.font.unwrap_or(FontSize::Pt8);

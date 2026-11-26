@@ -175,5 +175,11 @@ GM-Synth-Stimmen haben ihre eigenen Envelopes: Envelopes starten bei jedem Ansch
    Unregelmäßigkeiten; nach Gehör des/der Besitzer:in.
 
 Erledigt: GM Synth `EXTRA`-Filter (Off/BP/Notch/Comb), Android-Debug-Build per GitHub Actions.
-Schritt 1 gebaut, wartet auf Handy-Test: Zwei-Tabs-Ansicht im Hochformat (`PanelState::dual_tabs/tab2`, `tap_tab`,
-`item_list_marked`, `GMSYNTH_PORTRAIT` 15 U in `src/ui/rack.rs`), FILTER mit 7 Spalten (EXTRA eigene Spalte).
+Schritt 1 (Layout) auf dem Handy getestet: UI gut; Wunsch nach zwei Tab-Leisten umgesetzt (`PartKind::Pager` +
+`build::pager`, `PanelState::{tab, tab2, dual_tabs, pick_tab}`, untere Leiste `LOWER_TABS` = Control-ID 1,
+`GMSYNTH_PORTRAIT` 16 U in `src/ui/rack.rs`), FILTER mit 7 Spalten (EXTRA eigene Spalte). Wartet auf Handy-Test.
+Schritt 2 gebaut, wartet auf Handy-Test: Wellenform-Vorschau pro Oszillator auf der OSC-Seite (`wave_a`/`wave_b` in
+`src/panels/inst/gm_synth.rs`, Daten `gmsynth::preview_cycle`; folgt Shape-Auswahl, BALANCE-Anteil, PHASE B).
+Offen aus dem Test: Besitzer:in meldete „FM klingt gestuft"; bit-genauer Vergleich (Original vs. Fork, alle Osc-Mod-Arten
+× 3 Filter, EXTRA Off) ist identisch, Ursache also nicht der Synth-Code (vermutlich Debug-App-Einstellungen wie Puffergröße
+oder ein anderes Modul); Rückmeldung steht aus. Das GM-Synth-„FM" ist Phasenmodulation (A wird bei φ_A + (B+1)·m gelesen).

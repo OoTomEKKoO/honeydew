@@ -125,6 +125,13 @@ fn predicates(part: &Part) -> Vec<Show> {
             all.extend(c.iter().flat_map(predicates));
         }
         PartKind::Leaf(leaf) => all.extend([&leaf.enabled, &leaf.lit].into_iter().flat_map(of)),
+        PartKind::Pager { strips, pages } => {
+            all.extend(
+                (strips.iter().map(|s| &**s))
+                    .chain(pages)
+                    .flat_map(predicates),
+            );
+        }
     }
     all
 }

@@ -1,7 +1,13 @@
 //! The GMSynth panel (type 2), card 9.5 U: eight tabs, and on `FX` one page per effect slot.
 //! Ids follow the instrument convention, tab·10000 plus the `#n` digits padded to four: FILTER #6.1 is 16100.
 
+use eframe::egui::{Color32, Id, Rect, Shape, Stroke, epaint::Mesh, pos2};
+use honeydew_audio::gm_waveshapes::TABLE_LEN;
+
+use crate::panels::LOWER_TABS;
 use crate::panels::build::*;
+use crate::panels::{ModuleInstance, PanelState};
+use crate::ui::{UiCtx, widgets};
 // The waveshapes of the OSC `A` and `B` spinners, kept with the preset, not as params.
 use crate::params::GMSYNTH_WAVESHAPES as WAVESHAPES;
 
@@ -13,85 +19,193 @@ const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 const TABS: &str = "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX";
 
 pub fn panel() -> Option<Panel> {
-    Some(Panel::new(vstack([
+    // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own.
+    Some(Panel::new(pager(
         tabs(0, TABS).h(Size::U(1.25)),
-        hstack([
-            v_slider(11000, "CUTOFF").p(21),
-            v_slider(12000, "RES").p(22),
-            v_slider(13000, "ATTACK").p(25),
-            v_slider(14000, "DECAY").p(26),
-            v_slider(15000, "AMOUNT").p(27),
-            vstack([toggle(16100, "KBD").p(24), spinner(16200, "KIND").p(23)]),
-            // Honeydew's own EXTRA filter types, in a column of its own: three rows would be too narrow for the
-            // spinners' labels and arrows.
-            vstack([spinner(16300, "EXTRA").items(FILTER_EXTRA), spacer(16400)]),
-        ])
-        .show(Show::Tab(0)),
-        hstack([
-            vstack([
-                spinner(21100, "A").items(WAVESHAPES),
-                spinner(21200, "B").items(WAVESHAPES),
+        tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
+        vec![
+            hstack([
+                v_slider(11000, "CUTOFF").p(21),
+                v_slider(12000, "RES").p(22),
+                v_slider(13000, "ATTACK").p(25),
+                v_slider(14000, "DECAY").p(26),
+                v_slider(15000, "AMOUNT").p(27),
+                vstack([toggle(16100, "KBD").p(24), spinner(16200, "KIND").p(23)]),
+                // Honeydew's own EXTRA filter types, in a column of its own: three rows would be too narrow for the
+                // spinners' labels and arrows.
+                vstack([spinner(16300, "EXTRA").items(FILTER_EXTRA), spacer(16400)]),
             ]),
-            knob(22000, "PITCH B").p(11).w(Size::Flex(1.5)),
-            knob(23000, "FINE B").p(12).ml(0.5),
-            v_slider(24000, "PHASE B").p(14),
-            v_slider(25000, "BALANCE").p(13),
-            v_slider(26000, "NOISE").p(20),
-        ])
-        .show(Show::Tab(1)),
-        hstack([
-            v_slider(31000, "MOD. AMNT").p(15),
-            spinner(32000, "KIND").p(16),
-            v_slider(33000, "ATTACK").p(17),
-            v_slider(34000, "DECAY").p(18),
-            v_slider(35000, "EG AMOUNT").p(19),
-            // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.` and mid.
-            vstack([
-                spinner(36100, "PB RANGE").items(PB_RANGE).default(1.0),
-                spinner(36200, "MW DEST").items(MW_DEST).default(2.0),
+            hstack([
+                // Each oscillator: its shape menu over a live picture of the wave.
+                vstack([
+                    spinner(21100, "A").items(WAVESHAPES),
+                    display(21300).draw(wave_a).margins(0.1, 0.1, 0.1, 0.1),
+                ])
+                .w(Size::Flex(1.3)),
+                vstack([
+                    spinner(21200, "B").items(WAVESHAPES),
+                    display(21400).draw(wave_b).margins(0.1, 0.1, 0.1, 0.1),
+                ])
+                .w(Size::Flex(1.3)),
+                knob(22000, "PITCH B").p(11),
+                knob(23000, "FINE B").p(12).ml(0.5),
+                v_slider(24000, "PHASE B").p(14),
+                v_slider(25000, "BALANCE").p(13),
+                v_slider(26000, "NOISE").p(20),
             ]),
-            v_slider(37000, "MW AMOUNT").default(0.5),
-        ])
-        .show(Show::Tab(2)),
-        hstack([
-            knob(41000, "LEVEL").p(1).w(Size::Flex(1.5)),
-            knob(42000, "PAN").p(2).ml(0.5),
-            v_slider(43000, "ATK").p(3),
-            v_slider(44000, "DEC").p(4),
-            v_slider(45000, "SUS").p(5),
-            v_slider(46000, "REL").p(6),
-        ])
-        .show(Show::Tab(3)),
-        hstack([
-            v_slider(51000, "AMOUNT").p(40),
-            v_slider(52000, "ATTACK").p(36),
-            v_slider(53000, "DECAY").p(37),
-            v_slider(54000, "SUSTAIN").p(38),
-            v_slider(55000, "RELEASE").p(39),
-            vstack([toggle(56100, "VEL").p(74), spinner(56200, "DEST").p(41)]),
-        ])
-        .show(Show::Tab(4)),
-        hstack([
-            knob(61000, "AMOUNT").p(34),
-            spinner(62000, "SHAPE").p(33),
-            spinner(63000, "DEST").p(35),
-            spinner(64000, "RATE").p(32).items_per_column(5),
-        ])
-        .show(Show::Tab(5)),
-        hstack([
-            knob(71000, "TRNSP").p(28),
-            v_slider(72000, "SLIDE").p(29),
-            v_slider(73000, "CHOIR DTN").p(44),
-            v_slider(74000, "CHOIR STR").p(45),
-            vstack([toggle(75100, "MONO").p(30), toggle(75200, "AUTO").p(31)]),
-            vstack([
-                spinner(76100, "VOICES").p(42),
-                spinner(76200, "SCALE").p(43),
+            hstack([
+                v_slider(31000, "MOD. AMNT").p(15),
+                spinner(32000, "KIND").p(16),
+                v_slider(33000, "ATTACK").p(17),
+                v_slider(34000, "DECAY").p(18),
+                v_slider(35000, "EG AMOUNT").p(19),
+                // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.` and mid.
+                vstack([
+                    spinner(36100, "PB RANGE").items(PB_RANGE).default(1.0),
+                    spinner(36200, "MW DEST").items(MW_DEST).default(2.0),
+                ]),
+                v_slider(37000, "MW AMOUNT").default(0.5),
             ]),
-        ])
-        .show(Show::Tab(6)),
-        fx().show(Show::Tab(7)),
-    ])))
+            hstack([
+                knob(41000, "LEVEL").p(1).w(Size::Flex(1.5)),
+                knob(42000, "PAN").p(2).ml(0.5),
+                v_slider(43000, "ATK").p(3),
+                v_slider(44000, "DEC").p(4),
+                v_slider(45000, "SUS").p(5),
+                v_slider(46000, "REL").p(6),
+            ]),
+            hstack([
+                v_slider(51000, "AMOUNT").p(40),
+                v_slider(52000, "ATTACK").p(36),
+                v_slider(53000, "DECAY").p(37),
+                v_slider(54000, "SUSTAIN").p(38),
+                v_slider(55000, "RELEASE").p(39),
+                vstack([toggle(56100, "VEL").p(74), spinner(56200, "DEST").p(41)]),
+            ]),
+            hstack([
+                knob(61000, "AMOUNT").p(34),
+                spinner(62000, "SHAPE").p(33),
+                spinner(63000, "DEST").p(35),
+                spinner(64000, "RATE").p(32).items_per_column(5),
+            ]),
+            hstack([
+                knob(71000, "TRNSP").p(28),
+                v_slider(72000, "SLIDE").p(29),
+                v_slider(73000, "CHOIR DTN").p(44),
+                v_slider(74000, "CHOIR STR").p(45),
+                vstack([toggle(75100, "MONO").p(30), toggle(75200, "AUTO").p(31)]),
+                vstack([
+                    spinner(76100, "VOICES").p(42),
+                    spinner(76200, "SCALE").p(43),
+                ]),
+            ]),
+            fx(),
+        ],
+    )))
+}
+
+/// Partials the wave displays draw: enough for a saw's or a square's corners, few enough for no ringing.
+const DISPLAY_HARMONICS: usize = 48;
+/// Cycles a wave display shows.
+const DISPLAY_CYCLES: f32 = 2.0;
+/// The share of its half height the wave's peak reaches.
+const DISPLAY_FILL: f32 = 0.82;
+
+/// Osc A's wave display: its shape, scaled to its place in the BALANCE.
+fn wave_a(
+    ui: &mut eframe::egui::Ui,
+    cx: &UiCtx,
+    _: Id,
+    rect: Rect,
+    module: &mut ModuleInstance,
+    state: &mut PanelState,
+    ink: Color32,
+) -> Vec<usize> {
+    wave_display(ui, cx, rect, module, state, ink, false);
+    Vec::new()
+}
+
+/// Osc B's wave display: its shape at its PHASE B, with its BALANCE share (inverted below the middle, as it sounds).
+fn wave_b(
+    ui: &mut eframe::egui::Ui,
+    cx: &UiCtx,
+    _: Id,
+    rect: Rect,
+    module: &mut ModuleInstance,
+    state: &mut PanelState,
+    ink: Color32,
+) -> Vec<usize> {
+    wave_display(ui, cx, rect, module, state, ink, true);
+    Vec::new()
+}
+
+/// The shared drawing of the wave displays: a well, a faint zero line, two cycles of the shape as a curve with a soft
+/// fill to the zero line. The shape is the oscillator's menu setting (`#21100` / `#21200`) normalised to its own peak, so
+/// every shape fills the well alike; the curve fades with the oscillator's BALANCE share, to a quarter at silence, and
+/// B's curve starts at its PHASE B. A shape past the menu (none yet) leaves the zero line only.
+fn wave_display(
+    ui: &mut eframe::egui::Ui,
+    cx: &UiCtx,
+    rect: Rect,
+    module: &ModuleInstance,
+    state: &PanelState,
+    ink: Color32,
+    b: bool,
+) {
+    widgets::display_area(ui, cx, rect);
+    let t = cx.m.t();
+    let inner = rect.shrink(2.0 * t);
+    if inner.width() < 4.0 || inner.height() < 4.0 {
+        return;
+    }
+    let painter = ui.painter();
+    let mid = inner.center().y;
+    let text = cx.theme.colors.text.to_color32();
+    painter.line_segment(
+        [pos2(inner.left(), mid), pos2(inner.right(), mid)],
+        Stroke::new(t * 0.5, text.gamma_multiply(0.15)),
+    );
+    let param = |p: usize| module.params.get(p).copied().unwrap_or(0.5).clamp(0.0, 1.0);
+    let setting = state.settings.get(&if b { 21200 } else { 21100 });
+    let Some(cycle) = setting
+        .and_then(|&slot| honeydew_audio::gmsynth::preview_cycle(slot as usize, DISPLAY_HARMONICS))
+    else {
+        return;
+    };
+    let peak = cycle.iter().fold(1e-6_f32, |m, v| m.max(v.abs()));
+    // BALANCE: A takes 1 − |2v − 1| of it, B 2v − 1 (negative: B upside down).
+    let balance = 2.0 * param(13) - 1.0;
+    let (share, sign) = if b {
+        (balance.abs(), balance.signum())
+    } else {
+        (1.0 - balance.abs(), 1.0)
+    };
+    let ink = ink.gamma_multiply(0.25 + 0.75 * share);
+    let shift = if b { param(14) } else { 0.0 };
+    let steps = (inner.width() / (t * 1.5)).clamp(16.0, 400.0) as usize;
+    let amp = inner.height() / 2.0 * DISPLAY_FILL * sign / peak;
+    let at = |i: usize| {
+        let x = i as f32 / steps as f32;
+        let phase = (x * DISPLAY_CYCLES + shift).rem_euclid(1.0) * TABLE_LEN as f32;
+        let (i0, f) = ((phase as usize) % TABLE_LEN, phase.fract());
+        let v = cycle[i0] + (cycle[(i0 + 1) % TABLE_LEN] - cycle[i0]) * f;
+        pos2(inner.left() + x * inner.width(), mid - v * amp)
+    };
+    let points: Vec<_> = (0..=steps).map(at).collect();
+    // The soft fill between the curve and the zero line, then the curve.
+    let mut mesh = Mesh::default();
+    let fill = ink.gamma_multiply(0.2);
+    for pair in points.windows(2) {
+        let [p, q] = [pair[0], pair[1]];
+        let base = mesh.vertices.len() as u32;
+        for corner in [pos2(p.x, mid), p, q, pos2(q.x, mid)] {
+            mesh.colored_vertex(corner, fill);
+        }
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    painter.add(Shape::mesh(mesh));
+    painter.add(Shape::line(points, Stroke::new(t * 1.25, ink)));
 }
 
 /// The `FX` page: the slot list over the selected slot's on/off pill, then the selected slot's controls. Slot k is
@@ -184,17 +298,47 @@ pub const REFERENCE: Reference = Reference {
             ..Case::DEFAULT
         },
         Case {
+            name: "FILTER over OSC (two pages)",
+            lower: Some(1),
+            height: Some(14.0),
+            rows: &[
+                STRIP,
+                row(11000, Widget::VSlider, "CUTOFF", [0.00, 1.25, 2.42, 5.75]).p(21),
+                row(12000, Widget::VSlider, "RES", [2.42, 1.25, 2.42, 5.75]).p(22),
+                row(13000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 5.75]).p(25),
+                row(14000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 5.75]).p(26),
+                row(15000, Widget::VSlider, "AMOUNT", [9.69, 1.25, 2.42, 5.75]).p(27),
+                row(16100, Widget::Toggle, "KBD", [12.11, 1.25, 2.42, 2.87]).p(24),
+                row(16200, Widget::Spinner, "KIND", [12.11, 4.12, 2.42, 2.88]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [14.53, 1.25, 2.43, 2.87]).items("Off · BP · Notch · Comb"),
+                row(16400, Widget::Spacer, "", [14.53, 4.12, 2.43, 2.88]),
+                row(1, Widget::Tabs, "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX", [0.00, 7.00, 16.96, 1.25]).h(Size::U(1.25)),
+                row(21100, Widget::Spinner, "A", [0.00, 8.25, 2.81, 2.77]).items(SHAPES),
+                row(21300, Widget::Display, "", [0.10, 11.12, 2.61, 2.78]).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [2.81, 8.25, 2.82, 2.77]).items(SHAPES),
+                row(21400, Widget::Display, "", [2.91, 11.12, 2.62, 2.78]).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [5.63, 8.25, 2.16, 5.75]).p(11),
+                row(23000, Widget::Knob, "FINE B", [8.29, 8.25, 2.17, 5.75]).p(12).margins(0.0, 0.0, 0.0, 0.5),
+                row(24000, Widget::VSlider, "PHASE B", [10.46, 8.25, 2.16, 5.75]).p(14),
+                row(25000, Widget::VSlider, "BALANCE", [12.62, 8.25, 2.17, 5.75]).p(13),
+                row(26000, Widget::VSlider, "NOISE", [14.79, 8.25, 2.17, 5.75]).p(20),
+            ],
+            ..Case::DEFAULT
+        },
+        Case {
             name: "OSC",
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.00, 1.25, 2.53, 3.12]).items(SHAPES),
-                row(21200, Widget::Spinner, "B", [0.00, 4.37, 2.53, 3.12]).items(SHAPES),
-                row(22000, Widget::Knob, "PITCH B", [2.53, 1.25, 3.80, 6.24]).p(11).w(Size::Flex(1.5)),
-                row(23000, Widget::Knob, "FINE B", [6.83, 1.25, 2.53, 6.24]).p(12).margins(0.0, 0.0, 0.0, 0.5),
-                row(24000, Widget::VSlider, "PHASE B", [9.36, 1.25, 2.53, 6.24]).p(14),
-                row(25000, Widget::VSlider, "BALANCE", [11.89, 1.25, 2.53, 6.24]).p(13),
-                row(26000, Widget::VSlider, "NOISE", [14.42, 1.25, 2.54, 6.24]).p(20),
+                row(21100, Widget::Spinner, "A", [0.00, 1.25, 2.81, 3.02]).items(SHAPES),
+                row(21300, Widget::Display, "", [0.10, 4.37, 2.61, 3.02]).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [2.81, 1.25, 2.82, 3.02]).items(SHAPES),
+                row(21400, Widget::Display, "", [2.91, 4.37, 2.62, 3.02]).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [5.63, 1.25, 2.16, 6.24]).p(11),
+                row(23000, Widget::Knob, "FINE B", [8.29, 1.25, 2.17, 6.24]).p(12).margins(0.0, 0.0, 0.0, 0.5),
+                row(24000, Widget::VSlider, "PHASE B", [10.46, 1.25, 2.16, 6.24]).p(14),
+                row(25000, Widget::VSlider, "BALANCE", [12.62, 1.25, 2.17, 6.24]).p(13),
+                row(26000, Widget::VSlider, "NOISE", [14.79, 1.25, 2.17, 6.24]).p(20),
             ],
             ..Case::DEFAULT
         },

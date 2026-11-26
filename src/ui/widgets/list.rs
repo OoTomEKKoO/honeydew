@@ -137,28 +137,6 @@ pub fn item_list(ui: &mut Ui, cx: &UiCtx, list: &ItemList, value: &mut f32) -> R
 /// A list that is not a parameter (page tabs, UI state): `selected` is the index of the selected item. An index
 /// past the end selects nothing until the user picks an item.
 pub fn item_list_index(ui: &mut Ui, cx: &UiCtx, list: &ItemList, selected: &mut usize) -> Response {
-    let (mut response, tapped) = item_list_marked(ui, cx, list, *selected, None, true);
-    if let Some(i) = tapped
-        && i != *selected
-    {
-        *selected = i;
-        response.mark_changed();
-    }
-    response
-}
-
-/// A list that marks two items as selected (`selected` and `also`: two tab pages shown at once) and reports the item
-/// the user tapped, selected or not, in place of changing anything: the caller decides what a tap does. A tap by
-/// keyboard or controller counts too. With `follow` the list draws the tapped item as selected in the same frame
-/// ([`item_list_index`]); without it the caller's next `selected` decides.
-pub fn item_list_marked(
-    ui: &mut Ui,
-    cx: &UiCtx,
-    list: &ItemList,
-    selected: usize,
-    also: Option<usize>,
-    follow: bool,
-) -> (Response, Option<usize>) {
     let (m, colors) = (cx.m, &cx.theme.colors);
     let (rect, len, t) = (list.rect, list.items.len(), m.t());
     let sense = if list.disabled {
@@ -166,34 +144,31 @@ pub fn item_list_marked(
     } else {
         Sense::click()
     };
-    let response = ui.interact(rect, list.id, sense);
+    let mut response = ui.interact(rect, list.id, sense);
     let pick = |pos: Option<Pos2>| {
         pos.and_then(|p| cell_at(rect, len, list.bar, p))
             .filter(|i| !list.headers.contains(i))
     };
-    let mut tapped = None;
     if response.clicked()
         && let Some(i) = pick(response.interact_pointer_pos())
+        && i != *selected
     {
-        tapped = Some(i);
+        *selected = i;
+        response.mark_changed();
     }
     // Each item is a focus target of its own; `open` on the focused one picks it, as a tap does.
     if !list.disabled {
         for i in (0..len).filter(|i| !list.headers.contains(i)) {
             let item = list.id.with(("item", i));
             focus::register(ui, item, cell(rect, len, i, list.bar, t).cell, Kind::Button);
-            if focus::activated(ui.ctx(), item) {
-                tapped = Some(i);
+            if focus::activated(ui.ctx(), item) && i != *selected {
+                *selected = i;
+                response.mark_changed();
             }
         }
     }
-    let selected = if follow {
-        tapped.unwrap_or(selected)
-    } else {
-        selected
-    };
     // A group named by its selected item: the list has no caption.
-    let shown = list.items.get(selected).copied().unwrap_or_default();
+    let shown = list.items.get(*selected).copied().unwrap_or_default();
     response.widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, !list.disabled, shown));
     let pressed = primary_down_on(ui, &response)
         .then(|| pick(ui.input(|i| i.pointer.interact_pos())))
@@ -208,7 +183,7 @@ pub fn item_list_marked(
         painter.rect_filled(rect, 0.0, colors.module_fill.to_color32());
     }
     for (i, label) in list.items.iter().enumerate() {
-        let is_selected = i == selected || also == Some(i);
+        let is_selected = i == *selected;
         let cell = cell(rect, len, i, list.bar, t);
         if hover == Some(i) {
             painter.rect_filled(cell.cell, 0.0, list.channel.gamma_multiply(HOVER_WASH));
@@ -241,7 +216,7 @@ pub fn item_list_marked(
             painter.text(cell.text.center(), at, label, font, ink);
         }
     }
-    (response, tapped)
+    response
 }
 
 #[cfg(test)]
