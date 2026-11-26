@@ -14,8 +14,8 @@ use eframe::egui::{Align2, Color32, Id, Pos2, Rect, Response, Sense, Ui, WidgetI
 
 use super::{hovered, primary_down_on, through_index, truncated};
 use crate::metrics::FontSize;
-use crate::ui::UiCtx;
 use crate::ui::focus::{self, Kind};
+use crate::ui::{Finger, MOUSE, UiCtx, fingers};
 
 /// Alpha of the wash under a pressed cell, and of the tab selector's channel-colour wash under the mouse.
 const PRESS_WASH: f32 = 0.1;
@@ -155,6 +155,21 @@ pub fn item_list_index(ui: &mut Ui, cx: &UiCtx, list: &ItemList, selected: &mut 
     {
         *selected = i;
         response.mark_changed();
+    }
+    // Issue #68: egui's pointer follows the first finger down only. A later finger (the first plays keys or notes)
+    // picks the item it goes down on at once, as it turns a knob or slider by its touch events.
+    let pointer = ui.input(|i| i.pointer.primary_pressed()) && response.is_pointer_button_down_on();
+    if !list.disabled && !pointer {
+        for finger in fingers(ui, list.id) {
+            if let Finger::Down(id, at) = finger
+                && id != MOUSE
+                && let Some(i) = pick(Some(at))
+                && i != *selected
+            {
+                *selected = i;
+                response.mark_changed();
+            }
+        }
     }
     // Each item is a focus target of its own; `open` on the focused one picks it, as a tap does.
     if !list.disabled {

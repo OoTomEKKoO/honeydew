@@ -742,6 +742,48 @@ const TABS: Rect = Rect {
 };
 const FX: [&str; 4] = ["DIST", "DELAY", "CHORUS", "PHASER"];
 
+/// Issue #68: with the first finger down on something else (playing a key), a later finger on a tab strip picks the
+/// tab it goes down on; egui's pointer, which follows the first finger only, never sees it.
+#[test]
+fn a_later_finger_picks_a_tab_while_the_first_holds_something_else() {
+    use egui::{TouchDeviceId, TouchId, TouchPhase};
+    let index = Cell::new(0usize);
+    let mut bench = Bench::new(|ui, cx| {
+        let list = ItemList::new(Id::new("fx"), TABS, &FX, Bar::Boxed, Color32::RED);
+        let mut i = index.get();
+        let response = item_list_index(ui, cx, &list, &mut i);
+        index.set(i);
+        response
+    });
+    let touch = |id, phase, pos| Event::Touch {
+        device_id: TouchDeviceId(0),
+        id: TouchId(id),
+        phase,
+        pos,
+        force: None,
+    };
+    // The first finger goes down away from the strip and stays there.
+    let key = pos2(400.0, 400.0);
+    bench.frame(vec![
+        touch(1, TouchPhase::Start, key),
+        Event::PointerMoved(key),
+        Event::PointerButton {
+            pos: key,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        },
+    ]);
+    // A second finger goes down on the third cell (64 points each).
+    let third = pos2(TABS.left() + 64.0 * 2.5, TABS.center().y);
+    bench.frame(vec![touch(2, TouchPhase::Start, third)]);
+    assert_eq!(index.get(), 2);
+    assert!(bench.changed);
+    // The same finger lifting changes nothing more.
+    bench.frame(vec![touch(2, TouchPhase::End, third)]);
+    assert_eq!(index.get(), 2);
+}
+
 #[test]
 fn a_boxed_list_boxes_the_selected_cell_in_menu_fill_inset_2t_and_draws_no_bars() {
     let index = Cell::new(1usize);
