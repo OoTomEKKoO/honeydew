@@ -5,7 +5,15 @@ name: Android debug APK
 on:
   push:
     branches: ["claude/**"]
+  # `ref`: build that commit instead, for comparing against the original code (same app id and signing key, so it
+  # installs over this build and keeps its settings).
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit to build instead of this branch (empty: this branch)
+        required: false
+        default: ''
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +23,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Switch to the commit to compare
+        if: inputs.ref != ''
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          cp android/debug.keystore "$RUNNER_TEMP/debug.keystore"
+          git checkout --force "$REF"
+          cp "$RUNNER_TEMP/debug.keystore" android/debug.keystore
+          echo "ARTIFACT=honeydew-android-debug-${REF:0:7}" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.91.0
         with:
           targets: aarch64-linux-android, armv7-linux-androideabi
@@ -42,7 +61,7 @@ jobs:
           tools/android-dist.sh --base
       - uses: actions/upload-artifact@v4
         with:
-          name: honeydew-android-debug
+          name: ${{ env.ARTIFACT || 'honeydew-android-debug' }}
           path: target/honeydew-android-*-arm-base-debug.apk
           if-no-files-found: error
           retention-days: 30
