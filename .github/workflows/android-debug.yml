@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Commit to build instead of this branch (empty: this branch)
+        description: "Commit to build instead of this branch (empty = this branch)"
         required: false
         default: ''
         type: string
