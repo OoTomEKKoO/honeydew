@@ -164,7 +164,8 @@ GM-Synth-Stimmen haben ihre eigenen Envelopes: Envelopes starten bei jedem Ansch
 4. **Neuer Tab für frei mappbare Envelopes und LFOs** im GM Synth (wie 3x Osc, mit ziehbaren Punkten): mehrere
    Envelopes (starten bei jedem Anschlag) und LFOs, jeder mit Ziel-Parameter (aus den GM-Synth-Parametern) und Amount.
    LFO-Formen auch **Sample & Hold**, mit Sync-Modi (1/16 usw.) und Trigger-Modi (frei / bei jeder Note neu).
-   Anzahl der Envelopes/LFOs und Zielliste mit dem/der Besitzer:in klären. Neue Daten brauchen Platz im Song: Params
+   Entschieden: zum Testen **je 1 Envelope und 1 LFO** (später per Kopie erweiterbar); Ziele: Cutoff, Resonanz, Pitch,
+   Osc-B-Pitch, Balance, Noise, Mod-Amount, Level, Pan. Neue Daten brauchen Platz im Song: Params
    hinter Index 74 (Vorvorbild: Honeydew-eigene SoundFont-Player-Params 6–11 in `src/params/instruments.rs`) – vorher
    prüfen, wie FLM-Laden/Speichern mit zusätzlichen Params umgeht. Engine: `crates/audio/src/gmsynth.rs`, ein LFO ist
    bisher global.
@@ -174,3 +175,5 @@ GM-Synth-Stimmen haben ihre eigenen Envelopes: Envelopes starten bei jedem Ansch
    Unregelmäßigkeiten; nach Gehör des/der Besitzer:in.
 
 Erledigt: GM Synth `EXTRA`-Filter (Off/BP/Notch/Comb), Android-Debug-Build per GitHub Actions.
+Schritt 1 gebaut, wartet auf Handy-Test: Zwei-Tabs-Ansicht im Hochformat (`PanelState::dual_tabs/tab2`, `tap_tab`,
+`item_list_marked`, `GMSYNTH_PORTRAIT` 15 U in `src/ui/rack.rs`), FILTER mit 7 Spalten (EXTRA eigene Spalte).

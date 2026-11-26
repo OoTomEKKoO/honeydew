@@ -21,11 +21,10 @@ pub fn panel() -> Option<Panel> {
             v_slider(13000, "ATTACK").p(25),
             v_slider(14000, "DECAY").p(26),
             v_slider(15000, "AMOUNT").p(27),
-            vstack([
-                toggle(16100, "KBD").p(24),
-                spinner(16200, "KIND").p(23),
-                spinner(16300, "EXTRA").items(FILTER_EXTRA),
-            ]),
+            vstack([toggle(16100, "KBD").p(24), spinner(16200, "KIND").p(23)]),
+            // Honeydew's own EXTRA filter types, in a column of its own: three rows would be too narrow for the
+            // spinners' labels and arrows.
+            vstack([spinner(16300, "EXTRA").items(FILTER_EXTRA), spacer(16400)]),
         ])
         .show(Show::Tab(0)),
         hstack([
@@ -172,15 +171,15 @@ pub const REFERENCE: Reference = Reference {
             name: "FILTER",
             rows: &[
                 STRIP,
-                row(11000, Widget::VSlider, "CUTOFF", [0.00, 1.25, 2.82, 6.24]).p(21),
-                row(12000, Widget::VSlider, "RES", [2.82, 1.25, 2.83, 6.24]).p(22),
-                row(13000, Widget::VSlider, "ATTACK", [5.65, 1.25, 2.83, 6.24]).p(25),
-                row(14000, Widget::VSlider, "DECAY", [8.48, 1.25, 2.82, 6.24]).p(26),
-                row(15000, Widget::VSlider, "AMOUNT", [11.30, 1.25, 2.83, 6.24]).p(27),
-                // Honeydew's own third row (EXTRA) shares the original two rows' column.
-                row(16100, Widget::Toggle, "KBD", [14.13, 1.25, 2.82, 2.08]).p(24),
-                row(16200, Widget::Spinner, "KIND", [14.13, 3.33, 2.82, 2.08]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [14.13, 5.41, 2.82, 2.08]).items("Off · BP · Notch · Comb"),
+                row(11000, Widget::VSlider, "CUTOFF", [0.00, 1.25, 2.42, 6.24]).p(21),
+                row(12000, Widget::VSlider, "RES", [2.42, 1.25, 2.42, 6.24]).p(22),
+                row(13000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 6.24]).p(25),
+                row(14000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 6.24]).p(26),
+                row(15000, Widget::VSlider, "AMOUNT", [9.69, 1.25, 2.42, 6.24]).p(27),
+                row(16100, Widget::Toggle, "KBD", [12.11, 1.25, 2.42, 3.12]).p(24),
+                row(16200, Widget::Spinner, "KIND", [12.11, 4.37, 2.42, 3.12]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [14.53, 1.25, 2.43, 3.12]).items("Off · BP · Notch · Comb"),
+                row(16400, Widget::Spacer, "", [14.53, 4.37, 2.43, 3.12]),
             ],
             ..Case::DEFAULT
         },

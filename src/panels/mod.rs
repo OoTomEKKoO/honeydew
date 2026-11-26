@@ -108,7 +108,7 @@ impl Show {
         match *self {
             Self::Always => true,
             Self::Never => false,
-            Self::Tab(k) => state.tab == k,
+            Self::Tab(k) => state.tab == k || (state.dual_tabs && state.tab2 == Some(k)),
             Self::Item(p, k) => item(module, p) == Some(k),
             Self::Setting(n, k) => state.settings.get(&n).map(|&v| setting_item(v)) == Some(k),
             Self::Above(p, x) => module.params.get(p).is_some_and(|&v| v > x),
@@ -509,6 +509,12 @@ pub mod flag {
 pub struct PanelState {
     /// The selected page of the tab strip.
     pub tab: usize,
+    /// With [`Self::dual_tabs`], the page shown with it, above or below by tab order: two pages at once (a portrait
+    /// phone has the height).
+    pub tab2: Option<usize>,
+    /// The tab strip shows two pages at once ([`Self::tap_tab`]); set by the card wiring for modules that offer it
+    /// in a portrait phone window. Off: the strip picks one page.
+    pub dual_tabs: bool,
     /// Values of the controls bound to no param (module settings), by `#n`, starting at their [`Leaf::default`]: the
     /// item index for lists and spinners, 0 or 1 for toggles and buttons, a normalised value for the rest. Those a
     /// module saves are in its `CSTM` blob ([`cstm`]).
@@ -529,6 +535,19 @@ impl PanelState {
         let mut state = Self::default();
         state.seed(panel);
         state
+    }
+
+    /// A tap on tab `i` with two pages shown at once: a page not shown joins and the one before the last drops; a
+    /// shown page leaves (the other stays), but never the last page. Returns whether the pages changed.
+    pub fn tap_tab(&mut self, i: usize) -> bool {
+        let before = (self.tab, self.tab2);
+        match self.tab2 {
+            Some(other) if i == self.tab => (self.tab, self.tab2) = (other, None),
+            Some(other) if i == other => self.tab2 = None,
+            Some(_) | None if i == self.tab => {}
+            _ => (self.tab2, self.tab) = (Some(self.tab), i),
+        }
+        (self.tab, self.tab2) != before
     }
 
     /// Gives every control of `panel` without a param and without a setting yet its default.
@@ -833,6 +852,13 @@ pub fn show(
                 press(ui, &response, true, value)
             }
             Widget::TextToggle => widgets::text_toggle(ui, cx, &c, value!()).changed(),
+            Widget::Tabs if state.dual_tabs => {
+                let names = item_names(&label);
+                let list = ItemList::new(id, rect, &names, Bar::Bottom, ink);
+                let (_, tapped) =
+                    widgets::item_list_marked(ui, cx, &list, state.tab, state.tab2, false);
+                tapped.is_some_and(|i| state.tap_tab(i))
+            }
             Widget::Tabs => {
                 let names = item_names(&label);
                 let list = ItemList::new(id, rect, &names, Bar::Bottom, ink);
