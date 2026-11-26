@@ -187,6 +187,13 @@ genauso, **FL Studio Mobile klingt dort sauberer**. Also ein bestehender Untersc
 Das GM-Synth-„FM" ist Phasenmodulation (A wird bei φ_A + (B+1)·m gelesen). Vergleichsbuild eines beliebigen Commits:
 Actions → Android debug APK → Run workflow, Feld `ref` (gleiche App-ID und Signatur, installiert über die Debug-App).
 
+Rückmeldung zu Schritt 2 (Screenshot): Tabs funktionieren; Wellen-Vorschau als Entwurf ok, aber sie soll hochauflösender,
+zentriert, ohne Anstoßen am Rand sein und auf FM reagieren (A zeigt die von B modulierte Welle); Layout verschwenderisch.
+Umgesetzt: `gmsynth::FM_RANGE` (CSTM 32100, x1/x4/x8/x16, Skalierung der FM-Phasenverschiebung, x1 = Original), Vorschau
+mit Pixelauflösung und `curve_a` (Ring/FM/Sync). Geplant als nächster Schritt A: alle Slider des GM Synth durch Knobs,
+Wellenauswahl kompakter (Tippen auf die Vorschau öffnet die Liste, Name + Pfeile darunter), größere Karte, Schalter im
+≡-Menü des Moduls für ein- oder zweiseitige Ansicht; Schritt B: Modulationsring am Knob (Envelope/LFO/Mapping).
+
 7. **Oszillator-Klangqualität im GM Synth angleichen an FL Mobile** (später): Hypothesen, noch ungeprüft: der Tabellen-
    lesezugriff `gm_waveshapes::read` nimmt den nächsten Tabellenwert plus Dither (1024 Punkte) statt zu interpolieren;
    Aliasing der bandbegrenzten Tabellen bei hohen Tönen und starker FM; Detune zweier Saw-Wellen. Vorgehen: Spektrum/

@@ -201,8 +201,9 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 
 /// GMSynth (2), 20 bytes: OSC `A`/`B` (`1.1`/`1.2`), MOD `PB RANGE` (`6.1`, round(3v) of `1 smt`, `2 smt`,
 /// `7 smt`, `Oct`), `MW AMOUNT` (`7`) and `MW DEST` (`6.2`, int(2v) of `Filter`, `LFO`, `Osc. Mod.`).
-/// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20, written only
-/// once it is not `Off`, so a song that never uses it keeps the original 20 bytes.
+/// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20 and `FM RANGE`
+/// (`#3.2`: `x1`, `x4`, `x8`, `x16`) at byte 24, each written only once it is not its first item, so a song that never
+/// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
     f("waveA", 0, 21100, Index(29), 0.0),
     f("waveB", 4, 21200, Index(29), 0.0),
@@ -210,6 +211,7 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("MW AMOUNT", 12, 37000, Norm, 0.5),
     f("MW DEST", 16, 36200, Trunc(3), 2.0),
     f("FILTER EXTRA", 20, 16300, Index(4), 0.0),
+    f("FM RANGE", 24, 32100, Index(4), 0.0),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -829,6 +831,7 @@ mod tests {
                     (37000, 0.3),
                     (36200, 1.0),
                     (16300, 0.0),
+                    (32100, 0.0),
                 ]),
             ),
             (
@@ -994,7 +997,13 @@ mod tests {
         let waves = map([(21100, 5.0), (21200, 17.0)]);
         let with = |extra: &[(u32, f32)]| {
             let mut m = waves.clone();
-            m.extend([(36100, 1.0), (37000, 0.5), (36200, 2.0), (16300, 0.0)]);
+            m.extend([
+                (36100, 1.0),
+                (37000, 0.5),
+                (36200, 2.0),
+                (16300, 0.0),
+                (32100, 0.0),
+            ]);
             m.extend(extra.iter().copied());
             Some(m)
         };
@@ -1034,6 +1043,12 @@ mod tests {
         // Saving Off never grows an original blob.
         let same = cstm_from_settings(2, &map([(16300, 0.0)]), Some(&off)).unwrap();
         assert_eq!(same, off);
+        // FM RANGE sits at byte 24, after FILTER EXTRA, and grows the blob by its own field.
+        let fm = cstm_from_settings(2, &map([(32100, 2.0)]), Some(&off)).unwrap();
+        assert_eq!(fm.len(), 28);
+        assert_eq!(&fm[..20], &off[..]);
+        let loaded = settings_from_cstm(2, &fm).unwrap();
+        assert_eq!((loaded[&32100], loaded[&16300]), (2.0, 0.0));
         // A hostile value is clamped into the list.
         let wild = cstm_from_settings(2, &map([(16300, 99.0)]), Some(&off)).unwrap();
         assert_eq!(settings_from_cstm(2, &wild).unwrap()[&16300], 3.0);

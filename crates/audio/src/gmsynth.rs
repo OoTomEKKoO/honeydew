@@ -62,6 +62,12 @@ pub const MW_DEST: u32 = 36200;
 /// Honeydew's extra filter types (not in FL Studio Mobile): item 0 `Off` keeps the FILTER `KIND` param (v23), items
 /// 1–3 `BP`, `Notch` and `Comb` replace it. Kept in the `CSTM` blob after the original 20 bytes.
 pub const FILTER_EXTRA: u32 = 16300;
+/// Honeydew's FM depth range (not in FL Studio Mobile): item 0 `x1` is the original depth, the others multiply the
+/// phase offset FM adds (A is read at φ_A + (B + 1)·m·scale cycles), so a low amount already modulates hard. Kept in
+/// the `CSTM` blob after [`FILTER_EXTRA`].
+pub const FM_RANGE: u32 = 32100;
+/// The FM scale of each [`FM_RANGE`] item.
+pub const FM_SCALES: [f32; 4] = [1.0, 4.0, 8.0, 16.0];
 const EXTRA_BP: u8 = 1;
 const EXTRA_NOTCH: u8 = 2;
 const EXTRA_COMB: u8 = 3;
@@ -323,6 +329,8 @@ struct Control {
     filter_kind: u8,
     /// [`FILTER_EXTRA`]: 0 uses `filter_kind`.
     filter_extra: u8,
+    /// The FM phase offset's scale ([`FM_SCALES`]).
+    fm_scale: f32,
     sample_rate: f32,
     /// Master targets: linear level and pan P.
     level: f32,
@@ -454,7 +462,7 @@ impl Voice {
                 let b = read(table_b, self.phase_b[k], dither);
                 // FM: A is read at φ_A + (B + 1)·m cycles.
                 let phase_a = if fm {
-                    self.phase_a[k].wrapping_add(cycles((b + 1.0) * m))
+                    self.phase_a[k].wrapping_add(cycles((b + 1.0) * m * c.fm_scale))
                 } else {
                     self.phase_a[k]
                 };
@@ -645,6 +653,8 @@ pub struct GmSynth {
     pb_range: f32,
     /// `CSTM`: the extra filter type ([`FILTER_EXTRA`]).
     filter_extra: u8,
+    /// `CSTM`: the FM range item ([`FM_RANGE`]).
+    fm_range: usize,
     mw_amount: f32,
     mw_dest: usize,
     control: Control,
@@ -687,6 +697,7 @@ impl GmSynth {
             wheel: 0.0,
             pb_range: PB_RANGES[1],
             filter_extra: 0,
+            fm_range: 0,
             mw_amount: 0.5,
             mw_dest: MW_OSC_MOD,
             control: Control::default(),
@@ -833,6 +844,7 @@ impl GmSynth {
         c.resonance = v[22];
         c.filter_kind = ((2.0 * v[23]) as u8).min(2);
         c.filter_extra = self.filter_extra;
+        c.fm_scale = FM_SCALES[self.fm_range];
         c.sample_rate = sr;
 
         // Master: level dB = 66·v1 − 48 (+ LFO), 0 below −60 dB; P = clamp(v2 + LFO, 0, 1).
@@ -923,6 +935,11 @@ fn fx_slot(v: &[f32; PARAMS], slot: usize) -> (Option<usize>, Settings) {
 fn ratio_b(v: &[f32; PARAMS]) -> f32 {
     let s = pitch_b_step(v[11]);
     (((f64::from(v[12]) - 0.5) + s) * (1.0 / 12.0)).exp2() as f32
+}
+
+/// Oscillator B's frequency over A's from PITCH B (`v11`) and FINE B (`v12`), as the engine uses it.
+pub fn osc_b_ratio(v11: f32, v12: f32) -> f32 {
+    (((f64::from(v12) - 0.5) + pitch_b_step(v11)) * (1.0 / 12.0)).exp2() as f32
 }
 
 /// PITCH B (p11) in semitones: s = trunc(f64(v)·48 − 24), exact (the Slicer law).
@@ -1150,6 +1167,7 @@ impl Instrument for GmSynth {
             PB_RANGE => self.pb_range = PB_RANGES[(value as usize).min(PB_RANGES.len() - 1)],
             MW_AMOUNT => self.mw_amount = value.clamp(0.0, 1.0),
             MW_DEST => self.mw_dest = (value as usize).min(MW_OSC_MOD),
+            FM_RANGE => self.fm_range = (value as usize).min(FM_SCALES.len() - 1),
             FILTER_EXTRA => self.filter_extra = (value as usize).min(usize::from(EXTRA_COMB)) as u8,
             _ => {}
         }
@@ -1275,6 +1293,30 @@ mod tests {
             );
             assert!(out != off, "type {extra} sounds like Off");
         }
+    }
+
+    #[test]
+    fn fm_range_scales_the_fm_depth_and_x1_is_the_original() {
+        let render = |range: Option<f32>| {
+            let mut synth = GmSynth::new(RATE);
+            synth.set_parameter(16, 0.4); // KIND: FM
+            synth.set_parameter(15, 0.2); // MOD. AMNT: 20 %
+            if let Some(range) = range {
+                synth.set_setting(FM_RANGE, range);
+            }
+            synth.note_on(60, 1.0, 0.5);
+            let (mut left, mut right) = (vec![0.0; 4800], vec![0.0; 4800]);
+            synth.process(&mut left, &mut right, STOPPED);
+            assert!(left.iter().all(|x| x.is_finite()));
+            left
+        };
+        // x1 is what a song without the setting plays; the larger ranges sound different.
+        assert_eq!(render(None), render(Some(0.0)));
+        for range in [1.0, 2.0, 3.0] {
+            assert!(render(Some(range)) != render(None), "x{range}");
+        }
+        assert_eq!(osc_b_ratio(0.5, 0.5), 1.0);
+        assert_eq!(osc_b_ratio(0.75, 0.5), 2.0);
     }
 
     #[test]

@@ -13,6 +13,8 @@ use crate::params::GMSYNTH_WAVESHAPES as WAVESHAPES;
 
 const PB_RANGE: &[&str] = &["1 smt", "2 smt", "7 smt", "Oct"];
 const MW_DEST: &[&str] = &["Filter", "LFO", "Osc. Mod."];
+/// Honeydew's FM depth range, a `CSTM` setting; `x1` is the original depth.
+const FM_RANGES: &[&str] = &["x1", "x4", "x8", "x16"];
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
 const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
@@ -55,7 +57,11 @@ pub fn panel() -> Option<Panel> {
             ]),
             hstack([
                 v_slider(31000, "MOD. AMNT").p(15),
-                spinner(32000, "KIND").p(16),
+                vstack([
+                    spinner(32000, "KIND").p(16),
+                    // Honeydew's own: how far FM modulates (`x1` is the original depth).
+                    spinner(32100, "FM RANGE").items(FM_RANGES),
+                ]),
                 v_slider(33000, "ATTACK").p(17),
                 v_slider(34000, "DECAY").p(18),
                 v_slider(35000, "EG AMOUNT").p(19),
@@ -105,13 +111,15 @@ pub fn panel() -> Option<Panel> {
 }
 
 /// Partials the wave displays draw: enough for a saw's or a square's corners, few enough for no ringing.
-const DISPLAY_HARMONICS: usize = 48;
-/// Cycles a wave display shows.
+const DISPLAY_HARMONICS: usize = 96;
+/// Cycles of oscillator A a wave display shows.
 const DISPLAY_CYCLES: f32 = 2.0;
-/// The share of its half height the wave's peak reaches.
-const DISPLAY_FILL: f32 = 0.82;
+/// The share of its half height the wave's peak reaches: the curve and its stroke stay inside the well.
+const DISPLAY_FILL: f32 = 0.72;
+/// A curve point per device pixel, at most this many.
+const DISPLAY_MAX_POINTS: usize = 900;
 
-/// Osc A's wave display: its shape, scaled to its place in the BALANCE.
+/// Osc A's wave display: its shape as modulated by B (ring, FM or sync, by the MOD page), scaled to its BALANCE share.
 fn wave_a(
     ui: &mut eframe::egui::Ui,
     cx: &UiCtx,
@@ -139,10 +147,67 @@ fn wave_b(
     Vec::new()
 }
 
-/// The shared drawing of the wave displays: a well, a faint zero line, two cycles of the shape as a curve with a soft
-/// fill to the zero line. The shape is the oscillator's menu setting (`#21100` / `#21200`) normalised to its own peak, so
-/// every shape fills the well alike; the curve fades with the oscillator's BALANCE share, to a quarter at silence, and
-/// B's curve starts at its PHASE B. A shape past the menu (none yet) leaves the zero line only.
+/// One cycle of a shape, read at phase `x` (cycles, any sign) with linear interpolation.
+fn read_cycle(cycle: &[f32], x: f32) -> f32 {
+    let at = x.rem_euclid(1.0) * TABLE_LEN as f32;
+    let (i, f) = ((at as usize) % TABLE_LEN, at.fract());
+    cycle[i] + (cycle[(i + 1) % TABLE_LEN] - cycle[i]) * f
+}
+
+/// Osc A's curve at `steps + 1` points over [`DISPLAY_CYCLES`] cycles of A, as the engine plays it: plain, or ring
+/// (A × (1 + 3·m·B)), FM (A read at φ_A + (B + 1)·m·scale cycles) or sync (A restarts when B wraps), by the MOD page's
+/// KIND, MOD. AMNT and FM RANGE, with B at its PITCH B, FINE B and PHASE B. The modulation by envelopes, the LFO and the
+/// wheel is not drawn.
+fn curve_a(
+    a: &[f32],
+    b: &[f32],
+    module: &ModuleInstance,
+    state: &PanelState,
+    steps: usize,
+) -> Vec<f32> {
+    let param = |p: usize| module.params.get(p).copied().unwrap_or(0.5).clamp(0.0, 1.0);
+    let ratio = f64::from(honeydew_audio::gmsynth::osc_b_ratio(param(11), param(12)));
+    let (amount, offset) = (param(15), f64::from(param(14)));
+    // KIND: int(3v) of Ring, FM, Sync, Filter.
+    let kind = ((3.0 * param(16)) as u8).min(3);
+    let scale = state
+        .settings
+        .get(&32100)
+        .and_then(|&i| honeydew_audio::gmsynth::FM_SCALES.get(i as usize))
+        .copied()
+        .unwrap_or(1.0);
+    let mut restart = 0.0_f64;
+    let mut wraps = ((offset).floor()) as i64;
+    (0..=steps)
+        .map(|i| {
+            let t = f64::from(DISPLAY_CYCLES) * i as f64 / steps as f64;
+            let phase_b = t * ratio + offset;
+            let b = read_cycle(b, phase_b.rem_euclid(1.0) as f32);
+            match kind {
+                0 if amount > 0.001 => read_cycle(a, t as f32) * (1.0 + 3.0 * amount * b),
+                1 if amount > 0.001 => {
+                    let shift = f64::from((b + 1.0) * amount * scale).rem_euclid(1.0);
+                    read_cycle(a, (t + shift).rem_euclid(1.0) as f32)
+                }
+                2 => {
+                    // B's phase wrapped since the last point: A starts over from zero.
+                    if phase_b.floor() as i64 != wraps {
+                        wraps = phase_b.floor() as i64;
+                        restart = t;
+                    }
+                    read_cycle(a, (t - restart).rem_euclid(1.0) as f32)
+                }
+                _ => read_cycle(a, t as f32),
+            }
+        })
+        .collect()
+}
+
+/// The shared drawing of the wave displays: a well, a faint zero line, the curve with a soft fill to the zero line.
+/// A's curve is the oscillator as the MOD page modulates it ([`curve_a`]); B's is its own shape at its PHASE B. Both
+/// shapes are the oscillators' menu settings (`#21100` / `#21200`); each curve is normalised to its own peak, so
+/// it fills the well alike, and fades with the oscillator's BALANCE share, to a quarter at silence. A shape past the
+/// menu (none yet) leaves the zero line only. One curve point per device pixel, so it stays smooth at any size.
 fn wave_display(
     ui: &mut eframe::egui::Ui,
     cx: &UiCtx,
@@ -154,7 +219,7 @@ fn wave_display(
 ) {
     widgets::display_area(ui, cx, rect);
     let t = cx.m.t();
-    let inner = rect.shrink(2.0 * t);
+    let inner = rect.shrink(3.0 * t);
     if inner.width() < 4.0 || inner.height() < 4.0 {
         return;
     }
@@ -166,13 +231,16 @@ fn wave_display(
         Stroke::new(t * 0.5, text.gamma_multiply(0.15)),
     );
     let param = |p: usize| module.params.get(p).copied().unwrap_or(0.5).clamp(0.0, 1.0);
-    let setting = state.settings.get(&if b { 21200 } else { 21100 });
-    let Some(cycle) = setting
-        .and_then(|&slot| honeydew_audio::gmsynth::preview_cycle(slot as usize, DISPLAY_HARMONICS))
-    else {
+    let shape = |key: u32| {
+        let slot = *state.settings.get(&key)?;
+        honeydew_audio::gmsynth::preview_cycle(slot as usize, DISPLAY_HARMONICS)
+    };
+    let (Some(own), Some(other)) = (
+        shape(if b { 21200 } else { 21100 }),
+        shape(if b { 21100 } else { 21200 }),
+    ) else {
         return;
     };
-    let peak = cycle.iter().fold(1e-6_f32, |m, v| m.max(v.abs()));
     // BALANCE: A takes 1 − |2v − 1| of it, B 2v − 1 (negative: B upside down).
     let balance = 2.0 * param(13) - 1.0;
     let (share, sign) = if b {
@@ -181,17 +249,30 @@ fn wave_display(
         (1.0 - balance.abs(), 1.0)
     };
     let ink = ink.gamma_multiply(0.25 + 0.75 * share);
-    let shift = if b { param(14) } else { 0.0 };
-    let steps = (inner.width() / (t * 1.5)).clamp(16.0, 400.0) as usize;
-    let amp = inner.height() / 2.0 * DISPLAY_FILL * sign / peak;
-    let at = |i: usize| {
-        let x = i as f32 / steps as f32;
-        let phase = (x * DISPLAY_CYCLES + shift).rem_euclid(1.0) * TABLE_LEN as f32;
-        let (i0, f) = ((phase as usize) % TABLE_LEN, phase.fract());
-        let v = cycle[i0] + (cycle[(i0 + 1) % TABLE_LEN] - cycle[i0]) * f;
-        pos2(inner.left() + x * inner.width(), mid - v * amp)
+    let steps = ((inner.width() * cx.m.ppp()) as usize).clamp(48, DISPLAY_MAX_POINTS);
+    let values: Vec<f32> = if b {
+        let shift = f64::from(param(14));
+        (0..=steps)
+            .map(|i| {
+                let x = f64::from(DISPLAY_CYCLES) * i as f64 / steps as f64;
+                read_cycle(&own, (x + shift).rem_euclid(1.0) as f32)
+            })
+            .collect()
+    } else {
+        curve_a(&own, &other, module, state, steps)
     };
-    let points: Vec<_> = (0..=steps).map(at).collect();
+    let peak = values.iter().fold(1e-6_f32, |m, v| m.max(v.abs()));
+    let amp = inner.height() / 2.0 * DISPLAY_FILL * sign / peak;
+    let points: Vec<_> = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            pos2(
+                inner.left() + inner.width() * i as f32 / steps as f32,
+                mid - v * amp,
+            )
+        })
+        .collect();
     // The soft fill between the curve and the zero line, then the curve.
     let mut mesh = Mesh::default();
     let fill = ink.gamma_multiply(0.2);
@@ -278,8 +359,8 @@ const SHAPES: &str = "Beast · Crunch · Double Spike · Digital · Dirt · Elec
 pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
     // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
-    // Honeydew's own FILTER EXTRA (16300) on Off.
-    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (81100, 0.0)],
+    // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1.
+    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -348,7 +429,8 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(31000, Widget::VSlider, "MOD. AMNT", [0.00, 1.25, 2.42, 6.24]).p(15),
-                row(32000, Widget::Spinner, "KIND", [2.42, 1.25, 2.42, 6.24]).p(16),
+                row(32000, Widget::Spinner, "KIND", [2.42, 1.25, 2.42, 3.12]).p(16),
+                row(32100, Widget::Spinner, "FM RANGE", [2.42, 4.37, 2.42, 3.12]).items("x1 · x4 · x8 · x16"),
                 row(33000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 6.24]).p(17),
                 row(34000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 6.24]).p(18),
                 row(35000, Widget::VSlider, "EG AMOUNT", [9.69, 1.25, 2.42, 6.24]).p(19),
@@ -467,3 +549,65 @@ pub const REFERENCE: Reference = Reference {
         },
     ],
 };
+
+#[cfg(test)]
+mod curve_tests {
+    use super::*;
+    use honeydew_audio::gm_waveshapes::{SAW, SINE};
+
+    fn cycles(a: usize, b: usize) -> (Vec<f32>, Vec<f32>) {
+        let get = |slot| honeydew_audio::gmsynth::preview_cycle(slot, DISPLAY_HARMONICS).unwrap();
+        (get(a), get(b))
+    }
+
+    fn module(kind: f32, amount: f32) -> ModuleInstance {
+        let mut module = ModuleInstance::new(2, 1);
+        module.params[16] = kind;
+        module.params[15] = amount;
+        module
+    }
+
+    #[test]
+    fn a_with_no_modulation_is_its_plain_shape_and_each_kind_changes_it() {
+        let (a, b) = cycles(SAW, SINE);
+        let state = PanelState::default();
+        let plain = curve_a(&a, &b, &module(0.4, 0.0), &state, 200);
+        assert_eq!(plain.len(), 201);
+        // At 0 amount ring and FM leave A alone, whatever the KIND.
+        assert_eq!(plain, curve_a(&a, &b, &module(0.0, 0.0), &state, 200));
+        for (kind, name) in [(0.0, "ring"), (0.4, "FM")] {
+            let modulated = curve_a(&a, &b, &module(kind, 0.5), &state, 200);
+            assert!(modulated != plain, "{name} changes A");
+            assert!(modulated.iter().all(|v| v.is_finite()), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_larger_fm_range_bends_a_further_at_the_same_amount() {
+        let (a, b) = cycles(SAW, SINE);
+        let module = module(0.4, 0.2);
+        let mut state = PanelState::default();
+        let curve = |state: &PanelState| curve_a(&a, &b, &module, state, 200);
+        let x1 = curve(&state);
+        state.settings.insert(32100, 2.0);
+        let x8 = curve(&state);
+        assert!(x1 != x8);
+        // Item 0 is the original depth.
+        state.settings.insert(32100, 0.0);
+        assert_eq!(curve(&state), x1);
+    }
+
+    #[test]
+    fn sync_restarts_a_each_time_b_wraps() {
+        let (a, b) = cycles(SAW, SINE);
+        // PITCH B an octave up (v11 = 0.75): B wraps twice per A cycle, so A shows two half cycles.
+        let mut module = module(0.7, 0.5);
+        module.params[11] = 0.75;
+        let curve = curve_a(&a, &b, &module, &PanelState::default(), 400);
+        let (first, second) = (curve[0], curve[100]);
+        assert!(
+            (first - second).abs() < 0.05,
+            "A starts over at B's wrap: {first} {second}"
+        );
+    }
+}
