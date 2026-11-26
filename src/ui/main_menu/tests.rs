@@ -1870,7 +1870,7 @@ fn the_new_menu_sits_on_a_whole_pixel_grid_at_ppp_1_and_2() {
         }
         // The popup is the `text`-coloured fill that holds the five labels, inside the tab's area, 0.5 U padding
         // either side of the widest label.
-        let text = theme_by_id(0).colors.text.to_color32();
+        let text = crate::ui::popup::panel_fill(&theme_by_id(0).colors);
         let fill = rig
             .shapes
             .iter()

@@ -169,11 +169,7 @@ fn the_recent_control_follows_presses_on_rack_mixer_and_drum_strip_controls() {
 fn the_ctrl_menu_enables_add_automation_track_with_a_recent_control_and_the_link_on_another_param()
 {
     let mut rig = effects_rig();
-    let dim = crate::theme::theme_by_id(0)
-        .colors
-        .background
-        .to_color32()
-        .gamma_multiply(0.3);
+    let dim = crate::ui::popup::label_ink(&crate::theme::theme_by_id(0).colors).gamma_multiply(0.3);
     let enabled = |rig: &mut Rig| -> Vec<&'static str> {
         rig.click(CTRL);
         rig.frame(vec![]);

@@ -1,4 +1,6 @@
-//! The inverted popup menu: a grid of text items in `text` colour with `background` ink. No border, shadow or rounding.
+//! The popup menu: a grid of text items on a `menuFill` panel (a Honeydew change: FL Studio Mobile's is inverted, a
+//! `text` fill with `background` ink, which is glaring over a dark UI). The item the menu stands for is a `background`
+//! bar under a full `text` label. No border, shadow or rounding.
 
 use std::borrow::Cow;
 
@@ -20,12 +22,32 @@ pub(crate) const PAD_X: f32 = 0.5;
 /// The `dot` flag: a filled circle at the item's right edge, with a gap between it and the text.
 const DOT_R: f32 = 0.1;
 const DOT_GAP: f32 = 0.25;
-/// RGB factor of the hovered or pressed item's band: slightly darker.
-const BAND_SHADE: f32 = 0.85;
 /// The opening sweep's bar width (device px).
 const BAR_PX: f32 = 2.0;
 /// A message box's hovered or pressed item: a `text` band at this alpha (as the side browser's rows).
 const BOX_BAND_ALPHA: f32 = 0.15;
+/// The popup's hovered or pressed item: a band of the label ink at this alpha, lighter than the panel.
+const POPUP_BAND_ALPHA: f32 = 0.12;
+/// How far the popup labels' ink is mixed from `text` towards the panel: a little dimmed, so that the current item in
+/// full `text` stands out.
+const LABEL_MIX: f32 = 0.2;
+
+/// The popup panel's fill: the theme's menu colour.
+pub(crate) fn panel_fill(c: &crate::theme::ThemeColors) -> Color32 {
+    c.menu_fill.to_color32()
+}
+
+/// The ink of a popup's labels: `text` mixed [`LABEL_MIX`] of the way to the panel, opaque.
+pub(crate) fn label_ink(c: &crate::theme::ThemeColors) -> Color32 {
+    let (text, fill) = (c.text.to_color32(), panel_fill(c));
+    let mix =
+        |a: u8, b: u8| (f32::from(a) * (1.0 - LABEL_MIX) + f32::from(b) * LABEL_MIX).round() as u8;
+    Color32::from_rgb(
+        mix(text.r(), fill.r()),
+        mix(text.g(), fill.g()),
+        mix(text.b(), fill.b()),
+    )
+}
 
 /// One cell of a popup. Cells sit at (`col`, `row`); the grid is as large as the highest column and row.
 #[derive(Clone, Debug, PartialEq)]
@@ -192,12 +214,18 @@ fn show_as<T: Copy>(
     let c = &cx.theme.colors;
     // A message box's items are light on its dark box, which takes the place of the popup's fill.
     let (fill, ink) = match on_box {
-        false => (c.text.to_color32(), c.background.to_color32()),
+        false => (panel_fill(c), label_ink(c)),
         true => (c.background.to_color32(), c.text.to_color32()),
     };
     let band = match on_box {
-        false => darken(fill, BAND_SHADE),
+        false => ink.gamma_multiply(POPUP_BAND_ALPHA),
         true => ink.gamma_multiply(BOX_BAND_ALPHA),
+    };
+    // The item the menu stands for: a bar under its label. A message box's is light with a dark label; the popup's is
+    // the darkest colour under a full `text` label.
+    let (current_bar, current_label) = match on_box {
+        false => (c.background.to_color32(), c.text.to_color32()),
+        true => (ink, fill),
     };
     let mut result = PopupResult {
         selected: None,
@@ -260,9 +288,13 @@ fn show_as<T: Copy>(
                     c
                 }
             };
-            let color = if item.current { fill } else { dim(ink) };
+            let color = if item.current {
+                current_label
+            } else {
+                dim(ink)
+            };
             if item.current {
-                painter.rect_filled(cell, 0.0, dim(ink));
+                painter.rect_filled(cell, 0.0, dim(current_bar));
             }
             painter.text(
                 pos2(cell.left() + m.u(PAD_X), cell.center().y),
@@ -387,11 +419,6 @@ fn font<T>(item: &PopupItem<T>, m: &Metrics) -> egui::FontId {
     } else {
         FontSize::Pt10
     })
-}
-
-fn darken(color: Color32, factor: f32) -> Color32 {
-    let ch = |v: u8| (f32::from(v) * factor).round() as u8;
-    Color32::from_rgb(ch(color.r()), ch(color.g()), ch(color.b()))
 }
 
 /// The popup's screen rect and the rect of each item's cell (in `items` order).
@@ -765,7 +792,7 @@ mod tests {
 
     #[test]
     fn only_disabled_items_are_dimmed_headers_are_not() {
-        let ink = theme_by_id(0).colors.background.to_color32();
+        let ink = label_ink(&theme_by_id(0).colors);
         let mut rig = Rig::new(vec![
             PopupItem::header(0, 0, "Header:"),
             item(0, 1, "Plain"),
@@ -821,7 +848,7 @@ mod tests {
     fn the_popup_appears_at_full_strength_without_a_fade() {
         // `fade_in(false)`: from its first visible frame the popup is opaque (an egui fade starts near 0 and lowers
         // every shape's opacity).
-        let fill = theme_by_id(0).colors.text.to_color32();
+        let fill = panel_fill(&theme_by_id(0).colors);
         let mut rig = Rig {
             ctx: Context::default(),
             items: menu(),
@@ -1052,7 +1079,7 @@ mod tests {
 
         let colors = rig.label_colors();
         let color = |label: &str| colors.iter().find(|(l, _)| l == label).unwrap().1;
-        assert_eq!(color("Plain"), bg);
+        assert_eq!(color("Plain"), label_ink(&theme_by_id(0).colors));
         assert_eq!(color("Now"), text);
         // Disabled and current: the item is drawn at 30 % as a whole, so the dimmed bar keeps a plain `text` label,
         // the colour the composited label would land on (it stays readable).
@@ -1290,7 +1317,7 @@ mod sweep_tests {
     }
 
     fn fill() -> Color32 {
-        theme_by_id(0).colors.text.to_color32()
+        panel_fill(&theme_by_id(0).colors)
     }
 
     /// The `text`-filled rects painted (the popup's fill, bar or band).

@@ -414,7 +414,7 @@ mod tests {
             let shapes = self.screen.frame(vec![], &mut |ui, cx| {
                 menu.show(ui.ctx(), BUTTON, items, cx);
             });
-            let fill = crate::theme::theme_by_id(0).colors.text.to_color32();
+            let fill = crate::ui::popup::panel_fill(&crate::theme::theme_by_id(0).colors);
             shapes.iter().find_map(|s| match &s.shape {
                 eframe::egui::Shape::Rect(r) if r.fill == fill => Some(r.rect),
                 _ => None,

@@ -1306,7 +1306,7 @@ impl Rig {
                 (
                     rect.top(),
                     t,
-                    color == theme_by_id(0).colors.background.to_color32(),
+                    color == crate::ui::popup::label_ink(&theme_by_id(0).colors),
                 )
             })
             .collect();

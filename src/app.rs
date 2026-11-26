@@ -6396,11 +6396,8 @@ mod tests {
         // egui sizes the popup on its first frame and shows it on the next.
         rig.frame(vec![]);
         rig.frame(vec![]);
-        let dim = crate::theme::theme_by_id(0)
-            .colors
-            .background
-            .to_color32()
-            .gamma_multiply(0.3);
+        let dim =
+            crate::ui::popup::label_ink(&crate::theme::theme_by_id(0).colors).gamma_multiply(0.3);
         for item in [
             "Link to MIDI CC",
             "Link to Mod Wheel",
