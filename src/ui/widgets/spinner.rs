@@ -217,6 +217,38 @@ pub fn spinner_grid(
     response
 }
 
+/// A control that picks an item by a tap and draws nothing itself: a tap on `c.rect` opens the popup of `items` (the
+/// current one marked, `c.column_len` rows to a column), and the item picked there is the new index. The caller draws
+/// what the rect shows (a wave display that is its own menu). Without a chevron to step, since the display has none.
+pub fn tap_picker(
+    ui: &mut Ui,
+    cx: &UiCtx,
+    c: &Control,
+    items: &[&str],
+    index: &mut usize,
+) -> Response {
+    let n = items.len();
+    let current = (*index).min(n.saturating_sub(1));
+    let sense = if c.disabled || n == 0 {
+        Sense::hover()
+    } else {
+        Sense::click()
+    };
+    let mut response = focus::interact(ui, c.rect, c.id, sense);
+    if response.clicked() {
+        open_popup(ui, c.id, c.rect.center());
+    }
+    if let Some(i) = item_popup(ui, cx, c, items, current)
+        && i != current
+    {
+        *index = i;
+        response.mark_changed();
+    }
+    let item = items.get(*index).copied().unwrap_or_default();
+    response.widget_info(|| combo_info(c, item));
+    response
+}
+
 /// A control that looks like a spinner showing `item` and is a button: a tap anywhere on it is the caller's (the
 /// response's click), with no popup and no step. The SoundFont Player's `Patch`, which opens a picker.
 pub fn spinner_button(ui: &mut Ui, cx: &UiCtx, c: &Control, item: &str) -> Response {

@@ -140,7 +140,9 @@ const SOUNDFONT_PHONE: f32 = 11.0;
 const SOUNDFONT_PORTRAIT: f32 = 15.0;
 /// The GMSynth's card height in a portrait phone window, where its tab strip shows two pages at once, one above the
 /// other, each under its own tab strip: two strips and two pages of about 5.7 U, close to a landscape card's page.
-const GMSYNTH_PORTRAIT: f32 = 16.0;
+const GMSYNTH_PORTRAIT: f32 = 18.0;
+/// The same card with one page under one tab strip.
+const GMSYNTH_SINGLE: f32 = 11.0;
 /// The shorter side of a phone-size window: phones are about 16 U across (U = 1/6 inch), tablets and a 1280 × 800
 /// desktop window 25 U or more.
 const PHONE_SIDE: f32 = 20.0;
@@ -519,6 +521,8 @@ pub enum CardAction {
     ClearTarget,
     /// A DW Sampler's `New from samples…`: the instrument builder ([`builder_item`]).
     NewFromSamples,
+    /// A GMSynth's `One page` / `Two pages` in a portrait phone window: its tab strips show one page or two.
+    TogglePages,
 }
 
 /// What a preset picker loads into.
@@ -592,7 +596,8 @@ pub fn apply(rack: &mut Rack, instance_id: i32, action: CardAction) -> Outcome {
         | CardAction::Sidechain
         | CardAction::Modulate
         | CardAction::ClearTarget
-        | CardAction::NewFromSamples => Outcome::Nothing,
+        | CardAction::NewFromSamples
+        | CardAction::TogglePages => Outcome::Nothing,
         // The engine reads the key range at build.
         CardAction::SetFullRange => {
             let file = &mut rack.modules[index].file;
@@ -1374,9 +1379,11 @@ pub struct RackPanel {
     /// In a phone-size window, as last laid out: the SoundFont Player's card height, and whether its controls take two
     /// rows ([`SOUNDFONT_PHONE`]).
     soundfont_phone: Option<(f32, bool)>,
-    /// In a portrait phone window, as last laid out: the GMSynth's card is tall and its tab strip shows two pages at
-    /// once ([`GMSYNTH_PORTRAIT`], `PanelState::dual_tabs`).
-    gmsynth_dual: bool,
+    /// In a portrait phone window, as last laid out: the GMSynth's card is tall, and its tab strips show two pages at
+    /// once ([`GMSYNTH_PORTRAIT`], `PanelState::dual_tabs`) unless [`Self::gmsynth_single`].
+    gmsynth_portrait: bool,
+    /// The GMSynth card's `One page` choice: one page under one strip, in a shorter card ([`GMSYNTH_SINGLE`]).
+    gmsynth_single: bool,
     /// The pointer was over a Lemon card's editor last frame: the wheel is the editor's, not the rack's.
     lemon_wheel: bool,
     /// Issue #68: the Lemon card (channel index, instance id) whose editor shows full screen, which drives it: the card
@@ -1460,9 +1467,15 @@ impl RackPanel {
         {
             return h;
         }
-        if self.gmsynth_dual && module.type_id == SynthKind::GmSynth.type_id() && !module.minimized
+        if self.gmsynth_portrait
+            && module.type_id == SynthKind::GmSynth.type_id()
+            && !module.minimized
         {
-            return GMSYNTH_PORTRAIT;
+            return if self.gmsynth_single {
+                GMSYNTH_SINGLE
+            } else {
+                GMSYNTH_PORTRAIT
+            };
         }
         match lemon_plugin(module) {
             Some(b) if !module.minimized && u > 0.0 => {
@@ -1544,7 +1557,7 @@ impl RackPanel {
                 }
             });
         let phone = screen.width().min(screen.height()) * ppp < PHONE_SIDE * u;
-        self.gmsynth_dual = phone && crate::metrics::is_portrait(screen);
+        self.gmsynth_portrait = phone && crate::metrics::is_portrait(screen);
         let heights: Vec<f32> = (channel.rack.modules.iter())
             .map(|m| held.map_or(self.card_height(m), |_| CARD_HEADER))
             .collect();
@@ -2539,10 +2552,11 @@ impl RackPanel {
         if module.type_id == SynthKind::GmSynth.type_id() {
             // Two pages at once while the card is tall: switching it on shows a second page under the shown one, and
             // the two strips never show the same page.
-            if self.gmsynth_dual && state.tab2.is_none_or(|t| t == state.tab) {
+            let dual = self.gmsynth_portrait && !self.gmsynth_single;
+            if dual && state.tab2.is_none_or(|t| t == state.tab) {
                 state.tab2 = Some(usize::from(state.tab == 0));
             }
-            state.dual_tabs = self.gmsynth_dual;
+            state.dual_tabs = dual;
         }
         if module.type_id == three_osc::TYPE_ID {
             three_osc::wire(module, state);
@@ -2767,6 +2781,14 @@ impl RackPanel {
             if instrument(module.type_id) == Some(SynthKind::DwSampler) {
                 items.extend(builder_item(full_range(module)));
             }
+            if instrument(module.type_id) == Some(SynthKind::GmSynth) && self.gmsynth_portrait {
+                let label = if self.gmsynth_single {
+                    "Two pages"
+                } else {
+                    "One page"
+                };
+                items.push(PopupItem::new(CardAction::TogglePages, 1, 5, label));
+            }
             let menu_id = ui.id().with(("rack card menu", id));
             let r = popup::show(ctx, menu_id, at, screen, &items, cx);
             if r.close {
@@ -2787,6 +2809,10 @@ impl RackPanel {
             }
             if selected == Some(CardAction::NewFromSamples) {
                 actions.builder = Some(id);
+            }
+            if selected == Some(CardAction::TogglePages) {
+                self.gmsynth_single ^= true;
+                ctx.request_repaint();
             }
             let to = match selected {
                 Some(CardAction::Modulate) => Some(self.recent),

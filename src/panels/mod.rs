@@ -846,6 +846,15 @@ pub fn show(
                 let item = state.texts.get(&leaf.id).map_or(first, String::as_str);
                 widgets::spinner_button(ui, cx, &c, item).clicked()
             }
+            // A spinner that draws itself: the module's picture in its rect, a tap opens the item popup.
+            Widget::Spinner if leaf.draw.is_some() => {
+                if let Some(draw) = leaf.draw {
+                    let clip = ui.clip_rect();
+                    draw(ui, cx, id, rect, module, state, ink);
+                    ui.set_clip_rect(clip);
+                }
+                index_setting(value!(), |i| widgets::tap_picker(ui, cx, &c, items, i)).changed()
+            }
             Widget::Spinner => match kind.filter(|_| bound) {
                 Some(kind) => index_param(value!(), kind, |i| {
                     widgets::spinner_index(ui, cx, &c, items, i)

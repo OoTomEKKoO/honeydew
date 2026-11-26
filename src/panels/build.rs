@@ -253,11 +253,12 @@ impl Part {
         self.with_leaf(|l| l.value_fn = Some(f))
     }
 
-    /// Displays: the module draws `f` in it instead of the placeholder ([`Draw`]).
+    /// Displays: the module draws `f` in it instead of the placeholder ([`Draw`]). A spinner with a `draw` is that
+    /// picture, which a tap turns into the item popup (no chevrons, no label of the spinner's own).
     pub fn draw(self, f: Draw) -> Self {
         self.with_leaf(|l| {
             debug_assert!(
-                l.widget == Widget::Display,
+                matches!(l.widget, Widget::Display | Widget::Spinner),
                 "draw on #{} {:?}",
                 l.id,
                 l.widget

@@ -1,9 +1,10 @@
 //! The GMSynth panel (type 2), card 9.5 U: eight tabs, and on `FX` one page per effect slot.
 //! Ids follow the instrument convention, tab·10000 plus the `#n` digits padded to four: FILTER #6.1 is 16100.
 
-use eframe::egui::{Color32, Id, Rect, Shape, Stroke, epaint::Mesh, pos2};
+use eframe::egui::{Align2, Color32, Id, Rect, Shape, Stroke, Ui, epaint::Mesh, pos2, vec2};
 use honeydew_audio::gm_waveshapes::TABLE_LEN;
 
+use crate::metrics::FontSize;
 use crate::panels::LOWER_TABS;
 use crate::panels::build::*;
 use crate::panels::{ModuleInstance, PanelState};
@@ -20,87 +21,113 @@ const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
 const TABS: &str = "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX";
 
+/// A page of rows of controls, top to bottom.
+fn page(rows: impl IntoIterator<Item = Part>) -> Part {
+    vstack(rows)
+}
+
+/// A row of controls, left to right.
+fn line(parts: impl IntoIterator<Item = Part>) -> Part {
+    hstack(parts)
+}
+
 pub fn panel() -> Option<Panel> {
-    // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own.
+    // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own. Every
+    // value is a knob; the pages' second rows hold the menus and switches.
     Some(Panel::new(pager(
         tabs(0, TABS).h(Size::U(1.25)),
         tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
         vec![
-            hstack([
-                v_slider(11000, "CUTOFF").p(21),
-                v_slider(12000, "RES").p(22),
-                v_slider(13000, "ATTACK").p(25),
-                v_slider(14000, "DECAY").p(26),
-                v_slider(15000, "AMOUNT").p(27),
-                vstack([toggle(16100, "KBD").p(24), spinner(16200, "KIND").p(23)]),
-                // Honeydew's own EXTRA filter types, in a column of its own: three rows would be too narrow for the
-                // spinners' labels and arrows.
-                vstack([spinner(16300, "EXTRA").items(FILTER_EXTRA), spacer(16400)]),
+            page([
+                line([
+                    knob(11000, "CUTOFF").p(21),
+                    knob(12000, "RES").p(22),
+                    knob(13000, "ATTACK").p(25),
+                    knob(14000, "DECAY").p(26),
+                    knob(15000, "AMOUNT").p(27),
+                ]),
+                line([
+                    toggle(16100, "KBD").p(24),
+                    spinner(16200, "KIND").p(23),
+                    // Honeydew's own extra filter types.
+                    spinner(16300, "EXTRA").items(FILTER_EXTRA),
+                ]),
             ]),
-            hstack([
-                // Each oscillator: its shape menu over a live picture of the wave.
-                vstack([
-                    spinner(21100, "A").items(WAVESHAPES),
-                    display(21300).draw(wave_a).margins(0.1, 0.1, 0.1, 0.1),
+            page([
+                // Each oscillator is its own menu: a live picture of the wave, and a tap opens the shape list.
+                line([
+                    spinner(21100, "A")
+                        .items(WAVESHAPES)
+                        .items_per_column(10)
+                        .draw(wave_a)
+                        .margins(0.1, 0.1, 0.1, 0.1),
+                    spinner(21200, "B")
+                        .items(WAVESHAPES)
+                        .items_per_column(10)
+                        .draw(wave_b)
+                        .margins(0.1, 0.1, 0.1, 0.1),
                 ])
-                .w(Size::Flex(1.3)),
-                vstack([
-                    spinner(21200, "B").items(WAVESHAPES),
-                    display(21400).draw(wave_b).margins(0.1, 0.1, 0.1, 0.1),
-                ])
-                .w(Size::Flex(1.3)),
-                knob(22000, "PITCH B").p(11),
-                knob(23000, "FINE B").p(12).ml(0.5),
-                v_slider(24000, "PHASE B").p(14),
-                v_slider(25000, "BALANCE").p(13),
-                v_slider(26000, "NOISE").p(20),
+                .h(Size::Flex(2.2)),
+                line([
+                    knob(22000, "PITCH B").p(11),
+                    knob(23000, "FINE B").p(12),
+                    knob(24000, "PHASE B").p(14),
+                    knob(25000, "BALANCE").p(13),
+                    knob(26000, "NOISE").p(20),
+                ]),
             ]),
-            hstack([
-                v_slider(31000, "MOD. AMNT").p(15),
-                vstack([
+            page([
+                line([
+                    knob(31000, "MOD. AMNT").p(15),
+                    knob(33000, "ATTACK").p(17),
+                    knob(34000, "DECAY").p(18),
+                    knob(35000, "EG AMOUNT").p(19),
+                    knob(37000, "MW AMOUNT").default(0.5),
+                ]),
+                line([
                     spinner(32000, "KIND").p(16),
                     // Honeydew's own: how far FM modulates (`x1` is the original depth).
                     spinner(32100, "FM RANGE").items(FM_RANGES),
-                ]),
-                v_slider(33000, "ATTACK").p(17),
-                v_slider(34000, "DECAY").p(18),
-                v_slider(35000, "EG AMOUNT").p(19),
-                // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.` and mid.
-                vstack([
+                    // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.`, mid.
                     spinner(36100, "PB RANGE").items(PB_RANGE).default(1.0),
                     spinner(36200, "MW DEST").items(MW_DEST).default(2.0),
                 ]),
-                v_slider(37000, "MW AMOUNT").default(0.5),
             ]),
-            hstack([
-                knob(41000, "LEVEL").p(1).w(Size::Flex(1.5)),
-                knob(42000, "PAN").p(2).ml(0.5),
-                v_slider(43000, "ATK").p(3),
-                v_slider(44000, "DEC").p(4),
-                v_slider(45000, "SUS").p(5),
-                v_slider(46000, "REL").p(6),
+            page([
+                line([knob(41000, "LEVEL").p(1), knob(42000, "PAN").p(2)]),
+                line([
+                    knob(43000, "ATK").p(3),
+                    knob(44000, "DEC").p(4),
+                    knob(45000, "SUS").p(5),
+                    knob(46000, "REL").p(6),
+                ]),
             ]),
-            hstack([
-                v_slider(51000, "AMOUNT").p(40),
-                v_slider(52000, "ATTACK").p(36),
-                v_slider(53000, "DECAY").p(37),
-                v_slider(54000, "SUSTAIN").p(38),
-                v_slider(55000, "RELEASE").p(39),
-                vstack([toggle(56100, "VEL").p(74), spinner(56200, "DEST").p(41)]),
+            page([
+                line([
+                    knob(51000, "AMOUNT").p(40),
+                    knob(52000, "ATTACK").p(36),
+                    knob(53000, "DECAY").p(37),
+                    knob(54000, "SUSTAIN").p(38),
+                    knob(55000, "RELEASE").p(39),
+                ]),
+                line([toggle(56100, "VEL").p(74), spinner(56200, "DEST").p(41)]),
             ]),
-            hstack([
+            line([
                 knob(61000, "AMOUNT").p(34),
                 spinner(62000, "SHAPE").p(33),
                 spinner(63000, "DEST").p(35),
                 spinner(64000, "RATE").p(32).items_per_column(5),
             ]),
-            hstack([
-                knob(71000, "TRNSP").p(28),
-                v_slider(72000, "SLIDE").p(29),
-                v_slider(73000, "CHOIR DTN").p(44),
-                v_slider(74000, "CHOIR STR").p(45),
-                vstack([toggle(75100, "MONO").p(30), toggle(75200, "AUTO").p(31)]),
-                vstack([
+            page([
+                line([
+                    knob(71000, "TRNSP").p(28),
+                    knob(72000, "SLIDE").p(29),
+                    knob(73000, "CHOIR DTN").p(44),
+                    knob(74000, "CHOIR STR").p(45),
+                ]),
+                line([
+                    toggle(75100, "MONO").p(30),
+                    toggle(75200, "AUTO").p(31),
                     spinner(76100, "VOICES").p(42),
                     spinner(76200, "SCALE").p(43),
                 ]),
@@ -235,6 +262,10 @@ fn wave_display(
         let slot = *state.settings.get(&key)?;
         honeydew_audio::gmsynth::preview_cycle(slot as usize, DISPLAY_HARMONICS)
     };
+    let slot = state
+        .settings
+        .get(&if b { 21200 } else { 21100 })
+        .map(|&v| v as usize);
     let (Some(own), Some(other)) = (
         shape(if b { 21200 } else { 21100 }),
         shape(if b { 21100 } else { 21200 }),
@@ -287,6 +318,33 @@ fn wave_display(
     }
     painter.add(Shape::mesh(mesh));
     painter.add(Shape::line(points, Stroke::new(t * 1.25, ink)));
+    caption(ui, cx, inner, if b { "B" } else { "A" }, slot, ink);
+}
+
+/// The display's caption in its top left corner, the oscillator and its shape's name, and a small chevron at the top
+/// right that says a tap opens the list.
+fn caption(ui: &Ui, cx: &UiCtx, inner: Rect, osc: &str, slot: Option<usize>, ink: Color32) {
+    let painter = ui.painter();
+    let m = cx.m;
+    let name = slot.and_then(|i| WAVESHAPES.get(i)).copied().unwrap_or("");
+    let text = cx.theme.colors.text.to_color32();
+    painter.text(
+        inner.left_top() + vec2(m.t() * 2.0, m.t() * 1.0),
+        Align2::LEFT_TOP,
+        format!("{osc}  {name}"),
+        m.font_id(FontSize::Pt10),
+        text.gamma_multiply(0.85),
+    );
+    let c = pos2(inner.right() - m.t() * 5.0, inner.top() + m.t() * 4.5);
+    let w = m.t() * 2.5;
+    painter.add(Shape::line(
+        vec![
+            c + vec2(-w, -w * 0.5),
+            c + vec2(0.0, w * 0.5),
+            c + vec2(w, -w * 0.5),
+        ],
+        Stroke::new(m.t(), ink),
+    ));
 }
 
 /// The `FX` page: the slot list over the selected slot's on/off pill, then the selected slot's controls. Slot k is
@@ -312,8 +370,8 @@ fn fx() -> Part {
                 ]),
             ])
             .w(Size::Flex(2.0)),
-            v_slider(id + 200, "X").p(p + 5),
-            v_slider(id + 300, "Y").p(p + 6),
+            knob(id + 200, "X").p(p + 5),
+            knob(id + 300, "Y").p(p + 6),
         ])
         .w(Size::Flex(4.0))
         .show(slot(k))
@@ -366,15 +424,14 @@ pub const REFERENCE: Reference = Reference {
             name: "FILTER",
             rows: &[
                 STRIP,
-                row(11000, Widget::VSlider, "CUTOFF", [0.00, 1.25, 2.42, 6.24]).p(21),
-                row(12000, Widget::VSlider, "RES", [2.42, 1.25, 2.42, 6.24]).p(22),
-                row(13000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 6.24]).p(25),
-                row(14000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 6.24]).p(26),
-                row(15000, Widget::VSlider, "AMOUNT", [9.69, 1.25, 2.42, 6.24]).p(27),
-                row(16100, Widget::Toggle, "KBD", [12.11, 1.25, 2.42, 3.12]).p(24),
-                row(16200, Widget::Spinner, "KIND", [12.11, 4.37, 2.42, 3.12]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [14.53, 1.25, 2.43, 3.12]).items("Off · BP · Notch · Comb"),
-                row(16400, Widget::Spacer, "", [14.53, 4.37, 2.43, 3.12]),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 1.25, 3.39, 3.12]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 1.25, 3.39, 3.12]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 1.25, 3.39, 3.12]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 1.25, 3.39, 3.12]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 1.25, 3.40, 3.12]).p(27),
+                row(16100, Widget::Toggle, "KBD", [0.00, 4.37, 5.65, 3.12]).p(24),
+                row(16200, Widget::Spinner, "KIND", [5.65, 4.37, 5.65, 3.12]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [11.30, 4.37, 5.66, 3.12]).items("Off · BP · Notch · Comb"),
             ],
             ..Case::DEFAULT
         },
@@ -384,25 +441,22 @@ pub const REFERENCE: Reference = Reference {
             height: Some(14.0),
             rows: &[
                 STRIP,
-                row(11000, Widget::VSlider, "CUTOFF", [0.00, 1.25, 2.42, 5.75]).p(21),
-                row(12000, Widget::VSlider, "RES", [2.42, 1.25, 2.42, 5.75]).p(22),
-                row(13000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 5.75]).p(25),
-                row(14000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 5.75]).p(26),
-                row(15000, Widget::VSlider, "AMOUNT", [9.69, 1.25, 2.42, 5.75]).p(27),
-                row(16100, Widget::Toggle, "KBD", [12.11, 1.25, 2.42, 2.87]).p(24),
-                row(16200, Widget::Spinner, "KIND", [12.11, 4.12, 2.42, 2.88]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [14.53, 1.25, 2.43, 2.87]).items("Off · BP · Notch · Comb"),
-                row(16400, Widget::Spacer, "", [14.53, 4.12, 2.43, 2.88]),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 1.25, 3.39, 2.87]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 1.25, 3.39, 2.87]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 1.25, 3.39, 2.87]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 1.25, 3.39, 2.87]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 1.25, 3.40, 2.87]).p(27),
+                row(16100, Widget::Toggle, "KBD", [0.00, 4.12, 5.65, 2.88]).p(24),
+                row(16200, Widget::Spinner, "KIND", [5.65, 4.12, 5.65, 2.88]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [11.30, 4.12, 5.66, 2.88]).items("Off · BP · Notch · Comb"),
                 row(1, Widget::Tabs, "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX", [0.00, 7.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.00, 8.25, 2.81, 2.77]).items(SHAPES),
-                row(21300, Widget::Display, "", [0.10, 11.12, 2.61, 2.78]).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [2.81, 8.25, 2.82, 2.77]).items(SHAPES),
-                row(21400, Widget::Display, "", [2.91, 11.12, 2.62, 2.78]).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [5.63, 8.25, 2.16, 5.75]).p(11),
-                row(23000, Widget::Knob, "FINE B", [8.29, 8.25, 2.17, 5.75]).p(12).margins(0.0, 0.0, 0.0, 0.5),
-                row(24000, Widget::VSlider, "PHASE B", [10.46, 8.25, 2.16, 5.75]).p(14),
-                row(25000, Widget::VSlider, "BALANCE", [12.62, 8.25, 2.17, 5.75]).p(13),
-                row(26000, Widget::VSlider, "NOISE", [14.79, 8.25, 2.17, 5.75]).p(20),
+                row(21100, Widget::Spinner, "A", [0.10, 8.35, 8.28, 3.75]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [8.58, 8.35, 8.28, 3.75]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 12.20, 3.39, 1.80]).p(11),
+                row(23000, Widget::Knob, "FINE B", [3.39, 12.20, 3.39, 1.80]).p(12),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 12.20, 3.39, 1.80]).p(14),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 12.20, 3.39, 1.80]).p(13),
+                row(26000, Widget::Knob, "NOISE", [13.56, 12.20, 3.40, 1.80]).p(20),
             ],
             ..Case::DEFAULT
         },
@@ -411,15 +465,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.00, 1.25, 2.81, 3.02]).items(SHAPES),
-                row(21300, Widget::Display, "", [0.10, 4.37, 2.61, 3.02]).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [2.81, 1.25, 2.82, 3.02]).items(SHAPES),
-                row(21400, Widget::Display, "", [2.91, 4.37, 2.62, 3.02]).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [5.63, 1.25, 2.16, 6.24]).p(11),
-                row(23000, Widget::Knob, "FINE B", [8.29, 1.25, 2.17, 6.24]).p(12).margins(0.0, 0.0, 0.0, 0.5),
-                row(24000, Widget::VSlider, "PHASE B", [10.46, 1.25, 2.16, 6.24]).p(14),
-                row(25000, Widget::VSlider, "BALANCE", [12.62, 1.25, 2.17, 6.24]).p(13),
-                row(26000, Widget::VSlider, "NOISE", [14.79, 1.25, 2.17, 6.24]).p(20),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 4.09]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 4.09]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 5.54, 3.39, 1.95]).p(11),
+                row(23000, Widget::Knob, "FINE B", [3.39, 5.54, 3.39, 1.95]).p(12),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 5.54, 3.39, 1.95]).p(14),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 5.54, 3.39, 1.95]).p(13),
+                row(26000, Widget::Knob, "NOISE", [13.56, 5.54, 3.40, 1.95]).p(20),
             ],
             ..Case::DEFAULT
         },
@@ -428,15 +480,15 @@ pub const REFERENCE: Reference = Reference {
             tab: 2,
             rows: &[
                 STRIP,
-                row(31000, Widget::VSlider, "MOD. AMNT", [0.00, 1.25, 2.42, 6.24]).p(15),
-                row(32000, Widget::Spinner, "KIND", [2.42, 1.25, 2.42, 3.12]).p(16),
-                row(32100, Widget::Spinner, "FM RANGE", [2.42, 4.37, 2.42, 3.12]).items("x1 · x4 · x8 · x16"),
-                row(33000, Widget::VSlider, "ATTACK", [4.84, 1.25, 2.42, 6.24]).p(17),
-                row(34000, Widget::VSlider, "DECAY", [7.26, 1.25, 2.43, 6.24]).p(18),
-                row(35000, Widget::VSlider, "EG AMOUNT", [9.69, 1.25, 2.42, 6.24]).p(19),
-                row(36100, Widget::Spinner, "PB RANGE", [12.11, 1.25, 2.42, 3.12]).items("1 smt · 2 smt · 7 smt · Oct"),
-                row(36200, Widget::Spinner, "MW DEST", [12.11, 4.37, 2.42, 3.12]).items("Filter · LFO · Osc. Mod."),
-                row(37000, Widget::VSlider, "MW AMOUNT", [14.53, 1.25, 2.43, 6.24]),
+                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 1.25, 3.39, 3.12]).p(15),
+                row(33000, Widget::Knob, "ATTACK", [3.39, 1.25, 3.39, 3.12]).p(17),
+                row(34000, Widget::Knob, "DECAY", [6.78, 1.25, 3.39, 3.12]).p(18),
+                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 1.25, 3.39, 3.12]).p(19),
+                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 1.25, 3.40, 3.12]),
+                row(32000, Widget::Spinner, "KIND", [0.00, 4.37, 4.24, 3.12]).p(16),
+                row(32100, Widget::Spinner, "FM RANGE", [4.24, 4.37, 4.24, 3.12]).items("x1 · x4 · x8 · x16"),
+                row(36100, Widget::Spinner, "PB RANGE", [8.48, 4.37, 4.24, 3.12]).items("1 smt · 2 smt · 7 smt · Oct"),
+                row(36200, Widget::Spinner, "MW DEST", [12.72, 4.37, 4.24, 3.12]).items("Filter · LFO · Osc. Mod."),
             ],
             ..Case::DEFAULT
         },
@@ -445,12 +497,12 @@ pub const REFERENCE: Reference = Reference {
             tab: 3,
             rows: &[
                 STRIP,
-                row(41000, Widget::Knob, "LEVEL", [0.00, 1.25, 3.79, 6.24]).p(1).w(Size::Flex(1.5)),
-                row(42000, Widget::Knob, "PAN", [4.29, 1.25, 2.54, 6.24]).p(2).margins(0.0, 0.0, 0.0, 0.5),
-                row(43000, Widget::VSlider, "ATK", [6.83, 1.25, 2.53, 6.24]).p(3),
-                row(44000, Widget::VSlider, "DEC", [9.36, 1.25, 2.53, 6.24]).p(4),
-                row(45000, Widget::VSlider, "SUS", [11.89, 1.25, 2.53, 6.24]).p(5),
-                row(46000, Widget::VSlider, "REL", [14.42, 1.25, 2.54, 6.24]).p(6),
+                row(41000, Widget::Knob, "LEVEL", [0.00, 1.25, 8.48, 3.12]).p(1),
+                row(42000, Widget::Knob, "PAN", [8.48, 1.25, 8.48, 3.12]).p(2),
+                row(43000, Widget::Knob, "ATK", [0.00, 4.37, 4.24, 3.12]).p(3),
+                row(44000, Widget::Knob, "DEC", [4.24, 4.37, 4.24, 3.12]).p(4),
+                row(45000, Widget::Knob, "SUS", [8.48, 4.37, 4.24, 3.12]).p(5),
+                row(46000, Widget::Knob, "REL", [12.72, 4.37, 4.24, 3.12]).p(6),
             ],
             ..Case::DEFAULT
         },
@@ -459,13 +511,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 4,
             rows: &[
                 STRIP,
-                row(51000, Widget::VSlider, "AMOUNT", [0.00, 1.25, 2.82, 6.24]).p(40),
-                row(52000, Widget::VSlider, "ATTACK", [2.82, 1.25, 2.83, 6.24]).p(36),
-                row(53000, Widget::VSlider, "DECAY", [5.65, 1.25, 2.83, 6.24]).p(37),
-                row(54000, Widget::VSlider, "SUSTAIN", [8.48, 1.25, 2.82, 6.24]).p(38),
-                row(55000, Widget::VSlider, "RELEASE", [11.30, 1.25, 2.83, 6.24]).p(39),
-                row(56100, Widget::Toggle, "VEL", [14.13, 1.25, 2.82, 3.12]).p(74),
-                row(56200, Widget::Spinner, "DEST", [14.13, 4.37, 2.82, 3.12]).p(41),
+                row(51000, Widget::Knob, "AMOUNT", [0.00, 1.25, 3.39, 3.12]).p(40),
+                row(52000, Widget::Knob, "ATTACK", [3.39, 1.25, 3.39, 3.12]).p(36),
+                row(53000, Widget::Knob, "DECAY", [6.78, 1.25, 3.39, 3.12]).p(37),
+                row(54000, Widget::Knob, "SUSTAIN", [10.17, 1.25, 3.39, 3.12]).p(38),
+                row(55000, Widget::Knob, "RELEASE", [13.56, 1.25, 3.40, 3.12]).p(39),
+                row(56100, Widget::Toggle, "VEL", [0.00, 4.37, 8.48, 3.12]).p(74),
+                row(56200, Widget::Spinner, "DEST", [8.48, 4.37, 8.48, 3.12]).p(41),
             ],
             ..Case::DEFAULT
         },
@@ -486,14 +538,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 2.82, 6.24]).p(28),
-                row(72000, Widget::VSlider, "SLIDE", [2.82, 1.25, 2.83, 6.24]).p(29),
-                row(73000, Widget::VSlider, "CHOIR DTN", [5.65, 1.25, 2.83, 6.24]).p(44),
-                row(74000, Widget::VSlider, "CHOIR STR", [8.48, 1.25, 2.82, 6.24]).p(45),
-                row(75100, Widget::Toggle, "MONO", [11.30, 1.25, 2.83, 3.12]).p(30),
-                row(75200, Widget::Toggle, "AUTO", [11.30, 4.37, 2.83, 3.12]).p(31),
-                row(76100, Widget::Spinner, "VOICES", [14.13, 1.25, 2.82, 3.12]).p(42),
-                row(76200, Widget::Spinner, "SCALE", [14.13, 4.37, 2.82, 3.12]).p(43),
+                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 3.12]).p(28),
+                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 3.12]).p(29),
+                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 3.12]).p(44),
+                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 3.12]).p(45),
+                row(75100, Widget::Toggle, "MONO", [0.00, 4.37, 4.24, 3.12]).p(30),
+                row(75200, Widget::Toggle, "AUTO", [4.24, 4.37, 4.24, 3.12]).p(31),
+                row(76100, Widget::Spinner, "VOICES", [8.48, 4.37, 4.24, 3.12]).p(42),
+                row(76200, Widget::Spinner, "SCALE", [12.72, 4.37, 4.24, 3.12]).p(43),
             ],
             ..Case::DEFAULT
         },
@@ -508,8 +560,8 @@ pub const REFERENCE: Reference = Reference {
                 row(82112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(50),
                 row(82121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(48).items_per_column(5),
                 row(82122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(49),
-                row(82200, Widget::VSlider, "X", [10.17, 1.25, 3.39, 6.24]).p(51),
-                row(82300, Widget::VSlider, "Y", [13.56, 1.25, 3.40, 6.24]).p(52),
+                row(82200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(51),
+                row(82300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(52),
             ],
             ..Case::DEFAULT
         },
@@ -525,8 +577,8 @@ pub const REFERENCE: Reference = Reference {
                 row(83112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(57),
                 row(83121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(55).items_per_column(5),
                 row(83122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(56),
-                row(83200, Widget::VSlider, "X", [10.17, 1.25, 3.39, 6.24]).p(58),
-                row(83300, Widget::VSlider, "Y", [13.56, 1.25, 3.40, 6.24]).p(59),
+                row(83200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(58),
+                row(83300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(59),
             ],
             ..Case::DEFAULT
         },
@@ -542,8 +594,8 @@ pub const REFERENCE: Reference = Reference {
                 row(84112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(64),
                 row(84121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(62).items_per_column(5),
                 row(84122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(63),
-                row(84200, Widget::VSlider, "X", [10.17, 1.25, 3.39, 6.24]).p(65),
-                row(84300, Widget::VSlider, "Y", [13.56, 1.25, 3.40, 6.24]).p(66),
+                row(84200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(65),
+                row(84300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(66),
             ],
             ..Case::DEFAULT
         },

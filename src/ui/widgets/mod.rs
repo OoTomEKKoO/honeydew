@@ -76,7 +76,7 @@ pub use list::{Bar, ItemList, item_list, item_list_index};
 pub use menu_button::menu_button;
 pub use plain::{display_area, separator, text_label};
 pub use slider::{h_slider, v_slider};
-pub use spinner::{spinner, spinner_button, spinner_grid, spinner_index};
+pub use spinner::{spinner, spinner_button, spinner_grid, spinner_index, tap_picker};
 pub use text_toggle::{disc_toggle, text_button, text_toggle};
 pub use toggle::{Pill, pill_toggle, toggle};
 

@@ -3374,9 +3374,14 @@ fn a_gmsynth_osc_shape_edit_is_live_and_the_running_engine_plays_it() {
     let old = render(&mut SongAudioEngine::new(&rig.app.song, 48_000.0).unwrap());
     assert!(old.iter().any(|sample| sample.abs() > 0.01));
     rig.take();
-    // `A`'s `v` chevron: the next shape.
-    let spinner = control(&rig, 21100);
-    rig.click(pos2(spinner.center().x, spinner.bottom() - 0.1 * U));
+    // `A`'s wave display is its menu: a tap opens the shape list (ten rows to a column), and the second item is the
+    // next shape.
+    let picker = rack_id(2).with(("module panel", id)).with(21100);
+    rig.click_id(picker);
+    for _ in 0..30 {
+        rig.frame(vec![]);
+    }
+    rig.click_id(picker.with("item popup").with((0_usize, 1_usize)));
     rig.frame(vec![]);
     let wave = |rig: &Rig| {
         let blob = rig.app.song.channels[2].rack.modules[0]
