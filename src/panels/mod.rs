@@ -321,6 +321,8 @@ pub struct Leaf {
     /// Spinners: a tap anywhere on it is the card wiring's, reported in [`Edits::settings`], and opens no popup (the
     /// SoundFont's `Patch`, which opens the SoundFont picker). It shows [`PanelState::texts`]' text, else its first item.
     pub picker: bool,
+    /// Spinners: the compact look, a box with the label over the value that a tap anywhere opens ([`Control::compact`]).
+    pub compact: bool,
     /// Buttons: a halo disc (or rect) behind the button, bigger by the pad, in [`Leaf::halo_ink`].
     pub halo: Option<Pad>,
     /// Buttons: the halo's colour; `None` is the channel colour.
@@ -794,6 +796,7 @@ pub fn show(
                 None => ParamMenu::Unbound,
             },
             fine_tune: bound && pspec.is_some_and(fine_tune::module_param),
+            compact: leaf.compact,
             ..Control::new(id, rect, &label, ink, reset)
         };
         let text = |v: f32| match (leaf.value_fn, pspec) {

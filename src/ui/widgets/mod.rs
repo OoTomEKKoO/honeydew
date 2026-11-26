@@ -136,6 +136,9 @@ pub struct Control<'a> {
     /// Knobs: the value text on the ring (the default). Off, it shows only in the drag bubble (Honeydew change, #171:
     /// the mixer's pan knob, the drum strip's envelope knobs).
     pub ring_text: bool,
+    /// Spinners: a compact menu, a rounded box with the label over the value, whose whole face opens the popup (no
+    /// chevrons to step): half the height of the spinner, for narrow cards.
+    pub compact: bool,
 }
 
 /// The parameter menu of a knob, slider, toggle or button: knobs and sliders start it with `Reset`, and a control
@@ -179,6 +182,7 @@ impl<'a> Control<'a> {
             menu: ParamMenu::Bound,
             fine_tune: false,
             ring_text: true,
+            compact: false,
         }
     }
 

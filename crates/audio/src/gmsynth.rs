@@ -968,6 +968,215 @@ fn lfo_value(shape: u8, phase: f64) -> f32 {
     }
 }
 
+/// The nominal cutoff frequency in Hz of the normalised cutoff `c`: 32·2^(9.27c).
+pub fn cutoff_hz(c: f32) -> f32 {
+    CUTOFF_HZ * (CUTOFF_OCTAVES * c.clamp(0.0, 1.0)).exp2()
+}
+
+/// The normalised cutoff of a frequency in Hz, the inverse of [`cutoff_hz`].
+pub fn cutoff_of_hz(hz: f32) -> f32 {
+    ((hz.max(1.0) / CUTOFF_HZ).log2() / CUTOFF_OCTAVES).clamp(0.0, 1.0)
+}
+
+/// The filter's gain in dB at each of `freqs` (Hz), for a display: the cutoff `v21`, the resonance `v22`, KIND `v23`
+/// and the `EXTRA` type (0 off, 1 BP, 2 Notch, 3 Comb), at the sample rate the filter table is authored for. The linear
+/// response of the ladder (eight one-pole stages and the feedback from the last, one sample late, taps as
+/// [`ladder`] reads them); the input soft clip and the envelopes and LFO that move the cutoff are not in it.
+pub fn filter_response(
+    cutoff: f32,
+    resonance: f32,
+    kind: u8,
+    extra: u8,
+    freqs: &[f32],
+) -> Vec<f32> {
+    use std::f64::consts::TAU as TAU64;
+    let table = FILTER_TABLE.get_or_init(FilterTable::build);
+    let (a, b) = table.at(cutoff.clamp(0.0, 1.0));
+    let (a, feedback) = (f64::from(a), f64::from(resonance.clamp(0.0, 1.0) * b));
+    let rate = TABLE_RATE;
+    let comb_g = f64::from(
+        COMB_MIN_FEEDBACK + (COMB_MAX_FEEDBACK - COMB_MIN_FEEDBACK) * resonance.clamp(0.0, 1.0),
+    );
+    let comb_delay = rate / f64::from(cutoff_hz(cutoff));
+    freqs
+        .iter()
+        .map(|&hz| {
+            let w = TAU64 * f64::from(hz) / rate;
+            let z = Complex::new(w.cos(), -w.sin());
+            let gain = if extra == EXTRA_COMB {
+                // y = x + g·y[n − D], scaled by √(1 − g).
+                let loop_gain = Complex::from_polar(comb_g, -w * comb_delay);
+                (1.0 - comb_g).sqrt() / Complex::new(1.0, 0.0).minus(loop_gain).abs()
+            } else {
+                // One stage: a / (1 − (1 − a) z⁻¹).
+                let g = Complex::new(a, 0.0).over(Complex::new(1.0, 0.0).minus(z.scale(1.0 - a)));
+                let powers = |n: i32| (0..n).fold(Complex::new(1.0, 0.0), |p, _| p.times(g));
+                let tap = match (extra, kind) {
+                    (EXTRA_BP, _) => powers(2).minus(powers(6)),
+                    (EXTRA_NOTCH, _) => powers(4).plus(Complex::new(1.0, 0.0)).minus(g),
+                    (_, 0) => powers(4),
+                    (_, 1) => powers(8),
+                    _ => Complex::new(1.0, 0.0).minus(g),
+                };
+                // u = x / (1 + feedback·z⁻¹·G⁸).
+                let denominator = Complex::new(1.0, 0.0).plus(z.times(powers(8)).scale(feedback));
+                tap.over(denominator).abs()
+            };
+            (20.0 * gain.max(1e-6).log10()) as f32
+        })
+        .collect()
+}
+
+/// A complex number for [`filter_response`].
+#[derive(Clone, Copy)]
+struct Complex {
+    re: f64,
+    im: f64,
+}
+
+impl Complex {
+    fn new(re: f64, im: f64) -> Self {
+        Self { re, im }
+    }
+
+    fn from_polar(r: f64, angle: f64) -> Self {
+        Self::new(r * angle.cos(), r * angle.sin())
+    }
+
+    fn plus(self, o: Self) -> Self {
+        Self::new(self.re + o.re, self.im + o.im)
+    }
+
+    fn minus(self, o: Self) -> Self {
+        Self::new(self.re - o.re, self.im - o.im)
+    }
+
+    fn times(self, o: Self) -> Self {
+        Self::new(
+            self.re * o.re - self.im * o.im,
+            self.re * o.im + self.im * o.re,
+        )
+    }
+
+    fn over(self, o: Self) -> Self {
+        let d = o.re * o.re + o.im * o.im;
+        Self::new(
+            (self.re * o.re + self.im * o.im) / d,
+            (self.im * o.re - self.re * o.im) / d,
+        )
+    }
+
+    fn scale(self, k: f64) -> Self {
+        Self::new(self.re * k, self.im * k)
+    }
+
+    fn abs(self) -> f64 {
+        self.re.hypot(self.im)
+    }
+}
+
+/// Which GMSynth envelope [`envelope_preview`] draws.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnvelopeKind {
+    /// LEVEL: attack `v3`, decay `v4`, sustain `v5` (squared), release `v6`.
+    Level,
+    /// The filter envelope: attack `v25`, decay `v26`; it ignores note-off and decays to 0.
+    Filter,
+    /// The osc mod envelope: attack `v17`, decay `v18`; as the filter's.
+    Mod,
+    /// EG: attack `v36`, decay `v37`, sustain `v38` (squared), release `v39`.
+    Eg,
+}
+
+/// An envelope as the engine runs it, for a display.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnvelopePreview {
+    /// 0…1 at evenly spaced times over [`Self::seconds`].
+    pub values: Vec<f32>,
+    /// The note-off's place in `values` as a fraction (0…1); `None` for an envelope that ignores note-off.
+    pub gate_off: Option<f32>,
+    /// The time the values span, in seconds.
+    pub seconds: f32,
+}
+
+/// The envelope `kind` of params `v`, run through the engine's own [`Envelope`] at 1 kHz and sampled at `points` evenly
+/// spaced times: the key is held until the level settles (and a little longer), then let go. The window fits the
+/// envelope, so a 5 ms and a 5 s one both fill the display.
+pub fn envelope_preview(kind: EnvelopeKind, v: &[f32], points: usize) -> EnvelopePreview {
+    const RATE: f32 = 1_000.0;
+    const LIMIT: usize = 20_000;
+    let get = |i: usize| v.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    let clamp_rate = |k: f32| k.clamp(0.0, 1.0);
+    let rates = |attack: usize, decay: usize, sustain: Option<(usize, usize)>| Rates {
+        attack: clamp_rate(attack_rate(get(attack), RATE)),
+        decay: clamp_rate(decay_rate(get(decay), RATE)),
+        sustain: sustain.map_or(0.0, |(s, _)| get(s) * get(s)),
+        release: sustain.map_or(0.0, |(_, r)| {
+            let t = if kind == EnvelopeKind::Eg {
+                200.0 * get(r).powi(4) + 0.001
+            } else {
+                get(r) + 0.001
+            };
+            clamp_rate(RATE_SCALE / (RATE * t))
+        }),
+    };
+    let (rates, release) = match kind {
+        EnvelopeKind::Level => (rates(3, 4, Some((5, 6))), true),
+        EnvelopeKind::Filter => (rates(25, 26, None), false),
+        EnvelopeKind::Mod => (rates(17, 18, None), false),
+        EnvelopeKind::Eg => (rates(36, 37, Some((38, 39))), true),
+    };
+    let mut env = Envelope::default();
+    env.restart();
+    let mut curve = Vec::new();
+    let sustain = rates.sustain;
+    // Held until it has settled to its sustain (0 for the filter's and mod's), then a little longer.
+    let mut settled = 0;
+    while curve.len() < LIMIT {
+        let e = env.step(&rates);
+        curve.push(e);
+        settled = if (e - sustain).abs() < 0.01 && env.stage == Stage::Decay {
+            settled + 1
+        } else {
+            0
+        };
+        if settled > 5 {
+            break;
+        }
+    }
+    let hold = (curve.len() / 4).max(40);
+    curve.extend(std::iter::repeat_n(env.e, hold));
+    let gate_off = release.then_some(curve.len());
+    if release {
+        env.stage = Stage::Release;
+        while curve.len() < LIMIT * 2 && env.e > 0.005 {
+            curve.push(env.step(&rates));
+        }
+        curve.push(0.0);
+    }
+    let n = curve.len();
+    let values = (0..points.max(2))
+        .map(|i| curve[(i * (n - 1)) / (points.max(2) - 1)])
+        .collect();
+    EnvelopePreview {
+        values,
+        gate_off: gate_off.map(|g| g as f32 / n as f32),
+        seconds: n as f32 / RATE,
+    }
+}
+
+/// `points` samples (−1…1) of the LFO shape `v33` over `cycles` cycles: Sine, Saw or Square by int(2·v33), as the
+/// engine reads them.
+pub fn lfo_preview(shape: f32, cycles: f32, points: usize) -> Vec<f32> {
+    let shape = ((2.0 * shape.clamp(0.0, 1.0)) as u8).min(2);
+    (0..points.max(2))
+        .map(|i| {
+            let t = f64::from(cycles) * i as f64 / (points.max(2) - 1) as f64;
+            lfo_value(shape, t.rem_euclid(1.0))
+        })
+        .collect()
+}
+
 /// The voice pan law: L = 1 − max(0, 2p − 1), R = 1 + min(0, 2p − 1).
 fn pan_gains(p: f32) -> [f32; 2] {
     [
@@ -1317,6 +1526,91 @@ mod tests {
         }
         assert_eq!(osc_b_ratio(0.5, 0.5), 1.0);
         assert_eq!(osc_b_ratio(0.75, 0.5), 2.0);
+    }
+
+    #[test]
+    fn the_filter_response_matches_the_ladder_the_engine_runs() {
+        let table = FILTER_TABLE.get_or_init(FilterTable::build);
+        let c = 0.4;
+        let (a, _) = table.at(c);
+        let wc = -(1.0 - a).ln();
+        // The time-domain gain of `ladder` at a few frequencies against the display's, both with no resonance.
+        let rate = 44_100.0_f64;
+        for (kind, extra, name) in [
+            (0u8, 0u8, "LP 12"),
+            (1, 0, "LP 24"),
+            (2, 0, "HP"),
+            (0, EXTRA_BP, "BP"),
+            (0, EXTRA_NOTCH, "Notch"),
+        ] {
+            let ladder_kind = match extra {
+                EXTRA_BP => KIND_BP,
+                EXTRA_NOTCH => KIND_NOTCH,
+                _ => kind,
+            };
+            for ratio in [0.1_f32, 0.5, 1.0, 3.0] {
+                let w = wc * ratio;
+                let measured = 20.0 * gain(ladder_kind, a, w).log10();
+                let hz = (f64::from(w) * rate / std::f64::consts::TAU) as f32;
+                let shown = filter_response(c, 0.0, kind, extra, &[hz])[0];
+                assert!(
+                    (measured - shown).abs() < 1.0,
+                    "{name} at {ratio}×: {measured} dB measured, {shown} dB shown"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resonance_raises_the_peak_and_the_comb_has_teeth() {
+        let hz: Vec<f32> = (0..200)
+            .map(|i| 20.0 * 1000f32.powf(i as f32 / 199.0))
+            .collect();
+        let peak = |res| {
+            filter_response(0.5, res, 0, 0, &hz)
+                .into_iter()
+                .fold(f32::MIN, f32::max)
+        };
+        assert!(peak(1.0) > peak(0.0) + 6.0, "{} {}", peak(1.0), peak(0.0));
+        let comb = filter_response(0.5, 0.9, 0, EXTRA_COMB, &hz);
+        let (max, min) = comb
+            .iter()
+            .fold((f32::MIN, f32::MAX), |(a, b), &v| (a.max(v), b.min(v)));
+        assert!(comb.iter().all(|v| v.is_finite()));
+        assert!(max - min > 6.0, "peaks and notches: {max} {min}");
+        assert!((cutoff_of_hz(cutoff_hz(0.37)) - 0.37).abs() < 1e-4);
+    }
+
+    #[test]
+    fn envelope_previews_run_the_engines_envelope() {
+        // A new GMSynth: LEVEL attack 0, decay 1, sustain 1, release 0.2.
+        let mut v = DEFAULTS;
+        let level = envelope_preview(EnvelopeKind::Level, &v, 100);
+        assert_eq!(level.values.len(), 100);
+        assert!(level.values.iter().all(|x| (0.0..=1.0).contains(x)));
+        assert!(level.gate_off.is_some());
+        assert!(*level.values.last().unwrap() < 0.05, "released to silence");
+        // The filter envelope ignores note-off.
+        v[26] = 0.3;
+        let filter = envelope_preview(EnvelopeKind::Filter, &v, 100);
+        assert_eq!(filter.gate_off, None);
+        assert!(filter.values[0] <= filter.values.iter().cloned().fold(0.0, f32::max));
+        // A slower decay makes a longer window.
+        let slow = {
+            v[26] = 0.6;
+            envelope_preview(EnvelopeKind::Filter, &v, 100).seconds
+        };
+        assert!(slow > filter.seconds, "{slow} {}", filter.seconds);
+    }
+
+    #[test]
+    fn lfo_previews_follow_the_shapes() {
+        let sine = lfo_preview(0.0, 1.0, 5);
+        assert!(sine[0].abs() < 1e-6 && (sine[1] - 1.0).abs() < 1e-6);
+        let saw = lfo_preview(0.5, 1.0, 5);
+        assert_eq!(saw[0], -1.0);
+        let square = lfo_preview(1.0, 1.0, 5);
+        assert_eq!((square[0], square[4 - 1]), (-1.0, 1.0));
     }
 
     #[test]

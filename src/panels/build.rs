@@ -56,6 +56,7 @@ fn control(id: u32, widget: Widget, label: &'static str) -> Part {
         icon: None,
         momentary: false,
         picker: false,
+        compact: false,
         halo: None,
         halo_ink: None,
         enabled: Show::Always,
@@ -277,6 +278,19 @@ impl Part {
                 l.widget
             );
             l.picker = true;
+        })
+    }
+
+    /// Spinners: the compact look, a box with the label over the value; a tap anywhere opens the popup.
+    pub fn compact(self) -> Self {
+        self.with_leaf(|l| {
+            debug_assert!(
+                l.widget == Widget::Spinner,
+                "compact on #{} {:?}",
+                l.id,
+                l.widget
+            );
+            l.compact = true;
         })
     }
 

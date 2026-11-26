@@ -1,8 +1,11 @@
 //! The GMSynth panel (type 2), card 9.5 U: eight tabs, and on `FX` one page per effect slot.
 //! Ids follow the instrument convention, tab·10000 plus the `#n` digits padded to four: FILTER #6.1 is 16100.
 
-use eframe::egui::{Align2, Color32, Id, Rect, Shape, Stroke, Ui, epaint::Mesh, pos2, vec2};
+use eframe::egui::{
+    Align2, Color32, Id, Pos2, Rect, Sense, Shape, Stroke, Ui, epaint::Mesh, pos2, vec2,
+};
 use honeydew_audio::gm_waveshapes::TABLE_LEN;
+use honeydew_audio::gmsynth::EnvelopeKind;
 
 use crate::metrics::FontSize;
 use crate::panels::LOWER_TABS;
@@ -31,27 +34,37 @@ fn line(parts: impl IntoIterator<Item = Part>) -> Part {
     hstack(parts)
 }
 
+/// The height of a row of compact menus and switches, in U.
+const MENUS: f32 = 2.0;
+
 pub fn panel() -> Option<Panel> {
     // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own. Every
-    // value is a knob; the pages' second rows hold the menus and switches.
+    // value is a knob; the menus are compact, in a low row of their own; the filter, the envelopes and the LFO each
+    // have a picture of what they do.
     Some(Panel::new(pager(
         tabs(0, TABS).h(Size::U(1.25)),
         tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
         vec![
             page([
+                line([display(12100)
+                    .draw(filter_display)
+                    .margins(0.1, 0.1, 0.1, 0.1)])
+                .h(Size::Flex(1.5)),
                 line([
                     knob(11000, "CUTOFF").p(21),
                     knob(12000, "RES").p(22),
                     knob(13000, "ATTACK").p(25),
                     knob(14000, "DECAY").p(26),
                     knob(15000, "AMOUNT").p(27),
-                ]),
+                ])
+                .h(Size::Flex(1.3)),
                 line([
                     toggle(16100, "KBD").p(24),
-                    spinner(16200, "KIND").p(23),
+                    spinner(16200, "KIND").p(23).compact(),
                     // Honeydew's own extra filter types.
-                    spinner(16300, "EXTRA").items(FILTER_EXTRA),
-                ]),
+                    spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
+                ])
+                .h(Size::U(MENUS)),
             ]),
             page([
                 // Each oscillator is its own menu: a live picture of the wave, and a tap opens the shape list.
@@ -77,46 +90,70 @@ pub fn panel() -> Option<Panel> {
                 ]),
             ]),
             page([
+                line([display(31100).draw(env_mod).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(1.2)),
                 line([
                     knob(31000, "MOD. AMNT").p(15),
                     knob(33000, "ATTACK").p(17),
                     knob(34000, "DECAY").p(18),
                     knob(35000, "EG AMOUNT").p(19),
                     knob(37000, "MW AMOUNT").default(0.5),
-                ]),
+                ])
+                .h(Size::Flex(1.5)),
                 line([
-                    spinner(32000, "KIND").p(16),
+                    spinner(32000, "KIND").p(16).compact(),
                     // Honeydew's own: how far FM modulates (`x1` is the original depth).
-                    spinner(32100, "FM RANGE").items(FM_RANGES),
+                    spinner(32100, "FM RANGE").items(FM_RANGES).compact(),
                     // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.`, mid.
-                    spinner(36100, "PB RANGE").items(PB_RANGE).default(1.0),
-                    spinner(36200, "MW DEST").items(MW_DEST).default(2.0),
-                ]),
+                    spinner(36100, "PB RANGE")
+                        .items(PB_RANGE)
+                        .default(1.0)
+                        .compact(),
+                    spinner(36200, "MW DEST")
+                        .items(MW_DEST)
+                        .default(2.0)
+                        .compact(),
+                ])
+                .h(Size::U(MENUS)),
             ]),
             page([
-                line([knob(41000, "LEVEL").p(1), knob(42000, "PAN").p(2)]),
+                line([display(41100).draw(env_level).margins(0.1, 0.1, 0.1, 0.1)])
+                    .h(Size::Flex(1.3)),
                 line([
+                    knob(41000, "LEVEL").p(1),
+                    knob(42000, "PAN").p(2),
                     knob(43000, "ATK").p(3),
                     knob(44000, "DEC").p(4),
                     knob(45000, "SUS").p(5),
                     knob(46000, "REL").p(6),
-                ]),
+                ])
+                .h(Size::Flex(1.4)),
             ]),
             page([
+                line([display(51100).draw(env_eg).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(1.2)),
                 line([
                     knob(51000, "AMOUNT").p(40),
                     knob(52000, "ATTACK").p(36),
                     knob(53000, "DECAY").p(37),
                     knob(54000, "SUSTAIN").p(38),
                     knob(55000, "RELEASE").p(39),
-                ]),
-                line([toggle(56100, "VEL").p(74), spinner(56200, "DEST").p(41)]),
+                ])
+                .h(Size::Flex(1.5)),
+                line([
+                    toggle(56100, "VEL").p(74),
+                    spinner(56200, "DEST").p(41).compact(),
+                ])
+                .h(Size::U(MENUS)),
             ]),
-            line([
-                knob(61000, "AMOUNT").p(34),
-                spinner(62000, "SHAPE").p(33),
-                spinner(63000, "DEST").p(35),
-                spinner(64000, "RATE").p(32).items_per_column(5),
+            page([
+                line([display(61100).draw(lfo_display).margins(0.1, 0.1, 0.1, 0.1)])
+                    .h(Size::Flex(1.4)),
+                line([
+                    knob(61000, "AMOUNT").p(34),
+                    spinner(62000, "SHAPE").p(33).compact(),
+                    spinner(63000, "DEST").p(35).compact(),
+                    spinner(64000, "RATE").p(32).items_per_column(5).compact(),
+                ])
+                .h(Size::Flex(1.2)),
             ]),
             page([
                 line([
@@ -128,9 +165,10 @@ pub fn panel() -> Option<Panel> {
                 line([
                     toggle(75100, "MONO").p(30),
                     toggle(75200, "AUTO").p(31),
-                    spinner(76100, "VOICES").p(42),
-                    spinner(76200, "SCALE").p(43),
-                ]),
+                    spinner(76100, "VOICES").p(42).compact(),
+                    spinner(76200, "SCALE").p(43).compact(),
+                ])
+                .h(Size::U(MENUS)),
             ]),
             fx(),
         ],
@@ -347,6 +385,250 @@ fn caption(ui: &Ui, cx: &UiCtx, inner: Rect, osc: &str, slot: Option<usize>, ink
     ));
 }
 
+/// A well and the room inside it, or `None` when it is too small to draw in.
+fn well(ui: &Ui, cx: &UiCtx, rect: Rect) -> Option<Rect> {
+    widgets::display_area(ui, cx, rect);
+    let inner = rect.shrink(3.0 * cx.m.t());
+    (inner.width() >= 4.0 && inner.height() >= 4.0).then_some(inner)
+}
+
+/// A curve with a soft fill between it and the horizontal line at `base`.
+fn fill_curve(ui: &Ui, points: Vec<Pos2>, base: f32, ink: Color32, width: f32) {
+    let painter = ui.painter();
+    let mut mesh = Mesh::default();
+    let fill = ink.gamma_multiply(0.2);
+    for pair in points.windows(2) {
+        let [p, q] = [pair[0], pair[1]];
+        let first = mesh.vertices.len() as u32;
+        for corner in [pos2(p.x, base), p, q, pos2(q.x, base)] {
+            mesh.colored_vertex(corner, fill);
+        }
+        mesh.add_triangle(first, first + 1, first + 2);
+        mesh.add_triangle(first, first + 2, first + 3);
+    }
+    painter.add(Shape::mesh(mesh));
+    painter.add(Shape::line(points, Stroke::new(width, ink)));
+}
+
+/// A curve point per device pixel across `inner`, between 48 and 600.
+fn curve_points(cx: &UiCtx, inner: Rect) -> usize {
+    ((inner.width() * cx.m.ppp()) as usize).clamp(48, 600)
+}
+
+/// The frequency range the filter display covers, in Hz, and the gain range in dB.
+const FILTER_HZ: (f32, f32) = (20.0, 20_000.0);
+const FILTER_DB: (f32, f32) = (-42.0, 30.0);
+
+/// The filter display: its gain over frequency on a log axis, as the engine's filter does it (KIND, EXTRA, CUTOFF and
+/// RES), with the cutoff drawn as a line and the resonance as a ring where the two meet. Dragging moves them: the
+/// pointer's frequency is the CUTOFF and its height the RES. The envelopes and the LFO that move the cutoff are not drawn.
+fn filter_display(
+    ui: &mut Ui,
+    cx: &UiCtx,
+    id: Id,
+    rect: Rect,
+    module: &mut ModuleInstance,
+    state: &mut PanelState,
+    ink: Color32,
+) -> Vec<usize> {
+    let Some(inner) = well(ui, cx, rect) else {
+        return Vec::new();
+    };
+    let t = cx.m.t();
+    let log_span = (FILTER_HZ.1 / FILTER_HZ.0).ln();
+    let x_of = |hz: f32| inner.left() + inner.width() * (hz / FILTER_HZ.0).ln() / log_span;
+    let y_of = |db: f32| {
+        let v = (db - FILTER_DB.0) / (FILTER_DB.1 - FILTER_DB.0);
+        inner.bottom() - v.clamp(0.0, 1.0) * inner.height()
+    };
+    // A drag sets the cutoff (x) and the resonance (y): the pointer's place, not a move from the last one.
+    let response = ui.interact(rect, id, Sense::drag());
+    let mut changed = Vec::new();
+    if response.dragged()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let x = ((pos.x - inner.left()) / inner.width()).clamp(0.0, 1.0);
+        let hz = FILTER_HZ.0 * (FILTER_HZ.1 / FILTER_HZ.0).powf(x);
+        let res = (1.0 - (pos.y - inner.top()) / inner.height()).clamp(0.0, 1.0);
+        for (p, v) in [(21, honeydew_audio::gmsynth::cutoff_of_hz(hz)), (22, res)] {
+            if let Some(slot) = module.params.get_mut(p)
+                && (*slot - v).abs() > 1e-4
+            {
+                *slot = v;
+                changed.push(p);
+            }
+        }
+    }
+    let param = |p: usize| module.params.get(p).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    let (cutoff, res) = (param(21), param(22));
+    let kind = ((2.0 * param(23)) as u8).min(2);
+    let extra = state.settings.get(&16300).map_or(0, |&v| (v as u8).min(3));
+    let painter = ui.painter();
+    let (text, grid) = (
+        cx.theme.colors.text.to_color32(),
+        cx.theme.colors.text.to_color32().gamma_multiply(0.12),
+    );
+    // The grid: 0 dB, and 100 Hz, 1 kHz and 10 kHz with their names.
+    painter.line_segment(
+        [
+            pos2(inner.left(), y_of(0.0)),
+            pos2(inner.right(), y_of(0.0)),
+        ],
+        Stroke::new(t * 0.5, grid),
+    );
+    for (hz, name) in [(100.0, "100"), (1_000.0, "1k"), (10_000.0, "10k")] {
+        let x = x_of(hz);
+        painter.line_segment(
+            [pos2(x, inner.top()), pos2(x, inner.bottom())],
+            Stroke::new(t * 0.5, grid),
+        );
+        painter.text(
+            pos2(x + t, inner.bottom() - t),
+            Align2::LEFT_BOTTOM,
+            name,
+            cx.m.font_id(FontSize::Pt8),
+            text.gamma_multiply(0.45),
+        );
+    }
+    let steps = curve_points(cx, inner);
+    let freqs: Vec<f32> = (0..=steps)
+        .map(|i| FILTER_HZ.0 * (FILTER_HZ.1 / FILTER_HZ.0).powf(i as f32 / steps as f32))
+        .collect();
+    let gains = honeydew_audio::gmsynth::filter_response(cutoff, res, kind, extra, &freqs);
+    let points: Vec<Pos2> = freqs
+        .iter()
+        .zip(&gains)
+        .map(|(&hz, &db)| pos2(x_of(hz), y_of(db)))
+        .collect();
+    // The cutoff line and, where it meets the curve, the resonance ring.
+    let cx_hz = honeydew_audio::gmsynth::cutoff_hz(cutoff);
+    let x = x_of(cx_hz).clamp(inner.left(), inner.right());
+    painter.line_segment(
+        [pos2(x, inner.top()), pos2(x, inner.bottom())],
+        Stroke::new(t * 0.75, ink.gamma_multiply(0.5)),
+    );
+    fill_curve(ui, points, inner.bottom(), ink, t * 1.25);
+    let handle = pos2(x, inner.bottom() - res * inner.height());
+    ui.painter()
+        .circle_stroke(handle, t * 3.0, Stroke::new(t, ink));
+    changed
+}
+
+/// The envelope display of `kind`: the curve the engine's envelope runs for these params, over a time axis that fits
+/// it, with the note-off marked and the length of the window at the bottom right.
+fn env_display(
+    ui: &Ui,
+    cx: &UiCtx,
+    rect: Rect,
+    module: &ModuleInstance,
+    ink: Color32,
+    kind: EnvelopeKind,
+) {
+    let Some(inner) = well(ui, cx, rect) else {
+        return;
+    };
+    let t = cx.m.t();
+    let preview =
+        honeydew_audio::gmsynth::envelope_preview(kind, &module.params, curve_points(cx, inner));
+    let top = inner.top() + inner.height() * 0.08;
+    let last = (preview.values.len() - 1) as f32;
+    let points: Vec<Pos2> = preview
+        .values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            pos2(
+                inner.left() + inner.width() * i as f32 / last,
+                inner.bottom() - v * (inner.bottom() - top),
+            )
+        })
+        .collect();
+    let painter = ui.painter();
+    let text = cx.theme.colors.text.to_color32();
+    if let Some(off) = preview.gate_off {
+        let x = inner.left() + inner.width() * off;
+        painter.line_segment(
+            [pos2(x, inner.top()), pos2(x, inner.bottom())],
+            Stroke::new(t * 0.5, text.gamma_multiply(0.25)),
+        );
+    }
+    let window = if preview.seconds < 1.0 {
+        format!("{:.0} ms", preview.seconds * 1000.0)
+    } else {
+        format!("{:.1} s", preview.seconds)
+    };
+    painter.text(
+        pos2(inner.right() - t, inner.top() + t),
+        Align2::RIGHT_TOP,
+        window,
+        cx.m.font_id(FontSize::Pt8),
+        text.gamma_multiply(0.5),
+    );
+    fill_curve(ui, points, inner.bottom(), ink, t * 1.25);
+}
+
+/// The LFO display: two cycles of its shape, as tall as its AMOUNT (below the middle line when the amount is negative).
+fn lfo_display(
+    ui: &mut Ui,
+    cx: &UiCtx,
+    _: Id,
+    rect: Rect,
+    module: &mut ModuleInstance,
+    _: &mut PanelState,
+    ink: Color32,
+) -> Vec<usize> {
+    let Some(inner) = well(ui, cx, rect) else {
+        return Vec::new();
+    };
+    let t = cx.m.t();
+    let param = |p: usize| module.params.get(p).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    let amount = 2.0 * param(34) - 1.0;
+    let values = honeydew_audio::gmsynth::lfo_preview(param(33), 2.0, curve_points(cx, inner));
+    let mid = inner.center().y;
+    let amp = inner.height() / 2.0 * 0.85 * amount;
+    let last = (values.len() - 1) as f32;
+    let points: Vec<Pos2> = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            pos2(
+                inner.left() + inner.width() * i as f32 / last,
+                mid - v * amp,
+            )
+        })
+        .collect();
+    ui.painter().line_segment(
+        [pos2(inner.left(), mid), pos2(inner.right(), mid)],
+        Stroke::new(
+            t * 0.5,
+            cx.theme.colors.text.to_color32().gamma_multiply(0.15),
+        ),
+    );
+    fill_curve(ui, points, mid, ink, t * 1.25);
+    Vec::new()
+}
+
+/// The four envelope displays, one `Draw` each.
+macro_rules! env_draw {
+    ($name:ident, $kind:expr) => {
+        fn $name(
+            ui: &mut Ui,
+            cx: &UiCtx,
+            _: Id,
+            rect: Rect,
+            module: &mut ModuleInstance,
+            _: &mut PanelState,
+            ink: Color32,
+        ) -> Vec<usize> {
+            env_display(ui, cx, rect, module, ink, $kind);
+            Vec::new()
+        }
+    };
+}
+env_draw!(env_level, EnvelopeKind::Level);
+env_draw!(env_mod, EnvelopeKind::Mod);
+env_draw!(env_eg, EnvelopeKind::Eg);
+
 /// The `FX` page: the slot list over the selected slot's on/off pill, then the selected slot's controls. Slot k is
 /// #(k + 2) with params 46 + 7k (kind) to 52 + 7k (Y).
 fn fx() -> Part {
@@ -361,12 +643,18 @@ fn fx() -> Part {
         hstack([
             vstack([
                 hstack([
-                    spinner(id + 111, "FX KIND").p(p).items_per_column(5),
+                    spinner(id + 111, "FX KIND")
+                        .p(p)
+                        .items_per_column(5)
+                        .compact(),
                     knob(id + 112, "AMNT").p(p + 4),
                 ]),
                 hstack([
-                    spinner(id + 121, "LFO RATE").p(p + 2).items_per_column(5),
-                    spinner(id + 122, "LFO SHAPE").p(p + 3),
+                    spinner(id + 121, "LFO RATE")
+                        .p(p + 2)
+                        .items_per_column(5)
+                        .compact(),
+                    spinner(id + 122, "LFO SHAPE").p(p + 3).compact(),
                 ]),
             ])
             .w(Size::Flex(2.0)),
@@ -424,39 +712,41 @@ pub const REFERENCE: Reference = Reference {
             name: "FILTER",
             rows: &[
                 STRIP,
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 1.25, 3.39, 3.12]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 1.25, 3.39, 3.12]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 1.25, 3.39, 3.12]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 1.25, 3.39, 3.12]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 1.25, 3.40, 3.12]).p(27),
-                row(16100, Widget::Toggle, "KBD", [0.00, 4.37, 5.65, 3.12]).p(24),
-                row(16200, Widget::Spinner, "KIND", [5.65, 4.37, 5.65, 3.12]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [11.30, 4.37, 5.66, 3.12]).items("Off · BP · Notch · Comb"),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.07]).margins(0.1, 0.1, 0.1, 0.1),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 3.52, 3.39, 1.97]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 3.52, 3.39, 1.97]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 3.52, 3.39, 1.97]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 3.52, 3.39, 1.97]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 3.52, 3.40, 1.97]).p(27),
+                row(16100, Widget::Toggle, "KBD", [0.00, 5.49, 5.65, 2.00]).p(24),
+                row(16200, Widget::Spinner, "KIND", [5.65, 5.49, 5.65, 2.00]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [11.30, 5.49, 5.66, 2.00]).items("Off · BP · Notch · Comb"),
             ],
             ..Case::DEFAULT
         },
         Case {
             name: "FILTER over OSC (two pages)",
             lower: Some(1),
-            height: Some(14.0),
+            height: Some(16.0),
             rows: &[
                 STRIP,
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 1.25, 3.39, 2.87]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 1.25, 3.39, 2.87]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 1.25, 3.39, 2.87]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 1.25, 3.39, 2.87]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 1.25, 3.40, 2.87]).p(27),
-                row(16100, Widget::Toggle, "KBD", [0.00, 4.12, 5.65, 2.88]).p(24),
-                row(16200, Widget::Spinner, "KIND", [5.65, 4.12, 5.65, 2.88]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [11.30, 4.12, 5.66, 2.88]).items("Off · BP · Notch · Comb"),
-                row(1, Widget::Tabs, "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX", [0.00, 7.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 8.35, 8.28, 3.75]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [8.58, 8.35, 8.28, 3.75]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 12.20, 3.39, 1.80]).p(11),
-                row(23000, Widget::Knob, "FINE B", [3.39, 12.20, 3.39, 1.80]).p(12),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 12.20, 3.39, 1.80]).p(14),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 12.20, 3.39, 1.80]).p(13),
-                row(26000, Widget::Knob, "NOISE", [13.56, 12.20, 3.40, 1.80]).p(20),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.34]).margins(0.1, 0.1, 0.1, 0.1),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 3.79, 3.39, 2.21]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 3.79, 3.39, 2.21]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 3.79, 3.39, 2.21]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 3.79, 3.39, 2.21]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 3.79, 3.40, 2.21]).p(27),
+                row(16100, Widget::Toggle, "KBD", [0.00, 6.00, 5.65, 2.00]).p(24),
+                row(16200, Widget::Spinner, "KIND", [5.65, 6.00, 5.65, 2.00]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [11.30, 6.00, 5.66, 2.00]).items("Off · BP · Notch · Comb"),
+                row(1, Widget::Tabs, "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 4.44]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 4.44]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 13.89, 3.39, 2.11]).p(11),
+                row(23000, Widget::Knob, "FINE B", [3.39, 13.89, 3.39, 2.11]).p(12),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 13.89, 3.39, 2.11]).p(14),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 13.89, 3.39, 2.11]).p(13),
+                row(26000, Widget::Knob, "NOISE", [13.56, 13.89, 3.40, 2.11]).p(20),
             ],
             ..Case::DEFAULT
         },
@@ -480,15 +770,16 @@ pub const REFERENCE: Reference = Reference {
             tab: 2,
             rows: &[
                 STRIP,
-                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 1.25, 3.39, 3.12]).p(15),
-                row(33000, Widget::Knob, "ATTACK", [3.39, 1.25, 3.39, 3.12]).p(17),
-                row(34000, Widget::Knob, "DECAY", [6.78, 1.25, 3.39, 3.12]).p(18),
-                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 1.25, 3.39, 3.12]).p(19),
-                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 1.25, 3.40, 3.12]),
-                row(32000, Widget::Spinner, "KIND", [0.00, 4.37, 4.24, 3.12]).p(16),
-                row(32100, Widget::Spinner, "FM RANGE", [4.24, 4.37, 4.24, 3.12]).items("x1 · x4 · x8 · x16"),
-                row(36100, Widget::Spinner, "PB RANGE", [8.48, 4.37, 4.24, 3.12]).items("1 smt · 2 smt · 7 smt · Oct"),
-                row(36200, Widget::Spinner, "MW DEST", [12.72, 4.37, 4.24, 3.12]).items("Filter · LFO · Osc. Mod."),
+                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 1.68]).margins(0.1, 0.1, 0.1, 0.1),
+                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 3.13, 3.39, 2.36]).p(15),
+                row(33000, Widget::Knob, "ATTACK", [3.39, 3.13, 3.39, 2.36]).p(17),
+                row(34000, Widget::Knob, "DECAY", [6.78, 3.13, 3.39, 2.36]).p(18),
+                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 3.13, 3.39, 2.36]).p(19),
+                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 3.13, 3.40, 2.36]),
+                row(32000, Widget::Spinner, "KIND", [0.00, 5.49, 4.24, 2.00]).p(16),
+                row(32100, Widget::Spinner, "FM RANGE", [4.24, 5.49, 4.24, 2.00]).items("x1 · x4 · x8 · x16"),
+                row(36100, Widget::Spinner, "PB RANGE", [8.48, 5.49, 4.24, 2.00]).items("1 smt · 2 smt · 7 smt · Oct"),
+                row(36200, Widget::Spinner, "MW DEST", [12.72, 5.49, 4.24, 2.00]).items("Filter · LFO · Osc. Mod."),
             ],
             ..Case::DEFAULT
         },
@@ -497,12 +788,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 3,
             rows: &[
                 STRIP,
-                row(41000, Widget::Knob, "LEVEL", [0.00, 1.25, 8.48, 3.12]).p(1),
-                row(42000, Widget::Knob, "PAN", [8.48, 1.25, 8.48, 3.12]).p(2),
-                row(43000, Widget::Knob, "ATK", [0.00, 4.37, 4.24, 3.12]).p(3),
-                row(44000, Widget::Knob, "DEC", [4.24, 4.37, 4.24, 3.12]).p(4),
-                row(45000, Widget::Knob, "SUS", [8.48, 4.37, 4.24, 3.12]).p(5),
-                row(46000, Widget::Knob, "REL", [12.72, 4.37, 4.24, 3.12]).p(6),
+                row(41100, Widget::Display, "", [0.10, 1.35, 16.76, 2.80]).margins(0.1, 0.1, 0.1, 0.1),
+                row(41000, Widget::Knob, "LEVEL", [0.00, 4.25, 2.82, 3.24]).p(1),
+                row(42000, Widget::Knob, "PAN", [2.82, 4.25, 2.83, 3.24]).p(2),
+                row(43000, Widget::Knob, "ATK", [5.65, 4.25, 2.83, 3.24]).p(3),
+                row(44000, Widget::Knob, "DEC", [8.48, 4.25, 2.82, 3.24]).p(4),
+                row(45000, Widget::Knob, "SUS", [11.30, 4.25, 2.83, 3.24]).p(5),
+                row(46000, Widget::Knob, "REL", [14.13, 4.25, 2.82, 3.24]).p(6),
             ],
             ..Case::DEFAULT
         },
@@ -511,13 +803,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 4,
             rows: &[
                 STRIP,
-                row(51000, Widget::Knob, "AMOUNT", [0.00, 1.25, 3.39, 3.12]).p(40),
-                row(52000, Widget::Knob, "ATTACK", [3.39, 1.25, 3.39, 3.12]).p(36),
-                row(53000, Widget::Knob, "DECAY", [6.78, 1.25, 3.39, 3.12]).p(37),
-                row(54000, Widget::Knob, "SUSTAIN", [10.17, 1.25, 3.39, 3.12]).p(38),
-                row(55000, Widget::Knob, "RELEASE", [13.56, 1.25, 3.40, 3.12]).p(39),
-                row(56100, Widget::Toggle, "VEL", [0.00, 4.37, 8.48, 3.12]).p(74),
-                row(56200, Widget::Spinner, "DEST", [8.48, 4.37, 8.48, 3.12]).p(41),
+                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 1.68]).margins(0.1, 0.1, 0.1, 0.1),
+                row(51000, Widget::Knob, "AMOUNT", [0.00, 3.13, 3.39, 2.36]).p(40),
+                row(52000, Widget::Knob, "ATTACK", [3.39, 3.13, 3.39, 2.36]).p(36),
+                row(53000, Widget::Knob, "DECAY", [6.78, 3.13, 3.39, 2.36]).p(37),
+                row(54000, Widget::Knob, "SUSTAIN", [10.17, 3.13, 3.39, 2.36]).p(38),
+                row(55000, Widget::Knob, "RELEASE", [13.56, 3.13, 3.40, 2.36]).p(39),
+                row(56100, Widget::Toggle, "VEL", [0.00, 5.49, 8.48, 2.00]).p(74),
+                row(56200, Widget::Spinner, "DEST", [8.48, 5.49, 8.48, 2.00]).p(41),
             ],
             ..Case::DEFAULT
         },
@@ -526,10 +819,11 @@ pub const REFERENCE: Reference = Reference {
             tab: 5,
             rows: &[
                 STRIP,
-                row(61000, Widget::Knob, "AMOUNT", [0.00, 1.25, 4.24, 6.24]).p(34),
-                row(62000, Widget::Spinner, "SHAPE", [4.24, 1.25, 4.24, 6.24]).p(33),
-                row(63000, Widget::Spinner, "DEST", [8.48, 1.25, 4.24, 6.24]).p(35),
-                row(64000, Widget::Spinner, "RATE", [12.72, 1.25, 4.24, 6.24]).p(32).items_per_column(5),
+                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.16]).margins(0.1, 0.1, 0.1, 0.1),
+                row(61000, Widget::Knob, "AMOUNT", [0.00, 4.61, 4.24, 2.88]).p(34),
+                row(62000, Widget::Spinner, "SHAPE", [4.24, 4.61, 4.24, 2.88]).p(33),
+                row(63000, Widget::Spinner, "DEST", [8.48, 4.61, 4.24, 2.88]).p(35),
+                row(64000, Widget::Spinner, "RATE", [12.72, 4.61, 4.24, 2.88]).p(32).items_per_column(5),
             ],
             ..Case::DEFAULT
         },
@@ -538,14 +832,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 3.12]).p(28),
-                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 3.12]).p(29),
-                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 3.12]).p(44),
-                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 3.12]).p(45),
-                row(75100, Widget::Toggle, "MONO", [0.00, 4.37, 4.24, 3.12]).p(30),
-                row(75200, Widget::Toggle, "AUTO", [4.24, 4.37, 4.24, 3.12]).p(31),
-                row(76100, Widget::Spinner, "VOICES", [8.48, 4.37, 4.24, 3.12]).p(42),
-                row(76200, Widget::Spinner, "SCALE", [12.72, 4.37, 4.24, 3.12]).p(43),
+                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 4.24]).p(28),
+                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 4.24]).p(29),
+                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 4.24]).p(44),
+                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 4.24]).p(45),
+                row(75100, Widget::Toggle, "MONO", [0.00, 5.49, 4.24, 2.00]).p(30),
+                row(75200, Widget::Toggle, "AUTO", [4.24, 5.49, 4.24, 2.00]).p(31),
+                row(76100, Widget::Spinner, "VOICES", [8.48, 5.49, 4.24, 2.00]).p(42),
+                row(76200, Widget::Spinner, "SCALE", [12.72, 5.49, 4.24, 2.00]).p(43),
             ],
             ..Case::DEFAULT
         },
@@ -661,5 +955,80 @@ mod curve_tests {
             (first - second).abs() < 0.05,
             "A starts over at B's wrap: {first} {second}"
         );
+    }
+
+    #[test]
+    fn dragging_the_filter_display_sets_the_cutoff_and_the_resonance() {
+        use crate::metrics::{DEFAULT_UI_SCALE, Metrics};
+        use eframe::egui::{CentralPanel, Context, Event, PointerButton, RawInput, vec2};
+        let ctx = Context::default();
+        let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(400.0, 150.0));
+        let mut module = ModuleInstance::new(2, 1);
+        let mut state = PanelState::default();
+        let (theme, m) = (
+            crate::theme::theme_by_id(0),
+            Metrics::from_pixels_per_point(1.0, DEFAULT_UI_SCALE),
+        );
+        let cx = UiCtx {
+            theme: &theme,
+            m: &m,
+        };
+        let mut changed = Vec::new();
+        let mut run = |events: Vec<Event>, module: &mut ModuleInstance, time: f64| {
+            let raw = RawInput {
+                time: Some(time),
+                events,
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0))),
+                ..Default::default()
+            };
+            let _ = ctx.run(raw, |ctx| {
+                CentralPanel::default().show(ctx, |ui| {
+                    let ink = Color32::RED;
+                    changed.extend(filter_display(
+                        ui,
+                        &cx,
+                        Id::new("filter"),
+                        rect,
+                        module,
+                        &mut state,
+                        ink,
+                    ));
+                });
+            });
+        };
+        let start = rect.center();
+        run(vec![], &mut module, 0.0);
+        run(
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+            &mut module,
+            0.1,
+        );
+        // Drag to the middle of the display's width, a quarter of the way down from the top.
+        let to = pos2(
+            rect.left() + rect.width() * 0.5,
+            rect.top() + rect.height() * 0.25,
+        );
+        run(vec![Event::PointerMoved(to)], &mut module, 0.2);
+        run(
+            vec![Event::PointerMoved(to + vec2(1.0, 0.0))],
+            &mut module,
+            0.3,
+        );
+        assert!(
+            changed.contains(&21) && changed.contains(&22),
+            "{changed:?}"
+        );
+        // The middle of a 20 Hz – 20 kHz axis is about 632 Hz; the resonance is high near the top.
+        let hz = honeydew_audio::gmsynth::cutoff_hz(module.params[21]);
+        assert!((400.0..900.0).contains(&hz), "{hz} Hz");
+        assert!(module.params[22] > 0.6, "{}", module.params[22]);
     }
 }
