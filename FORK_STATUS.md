@@ -25,6 +25,17 @@ Umsetzung: `theme::Accent` (Rollen Osc gelb, Mod orange, Filter cyan, Level blau
 im GM Synth pro Seite angewendet (VOICES bleibt Kanalfarbe). Test: Kontrast ≥ 3 auf den Panelfarben des Standard-Themes.
 Noch offen: farbiger Streifen/Titel pro Seite, Modulationsring in Quellfarbe, Übertragung auf andere Module, Theme-Ableitung.
 
+## Feedback Tag 2, Teil 2 (zur APK mit Farben) und Umsetzung
+
+- Menüs: „überlappen teils, nehmen zu viel Platz; am rechten Rand übereinander stapeln, nicht unten flach" -> umgesetzt:
+  `with_side(main, side)` in `gm_synth.rs` (Haupt 3.6 : Seitenspalte 1.0), Menüs passen sich an (`paint_compact`: einzeilig,
+  sonst Beschriftung über dem Wert, nie überlappend).
+- Envelope-Anzeige „reagiert nicht mehr": Ursache war mein Fehler (feste Breitenanteile je Stufe -> die normierte Kurve ändert
+  sich bei ATTACK/DECAY nicht, nur die Beschriftung). Jetzt folgt der Breitenanteil der Stufenzeit logarithmisch
+  (`env_weight`: mind. 0.35, bis ~1.35 bei 20 s), Test `attack share grows`.
+- OSC-FM bei tiefem Pitch von B wirkte unsymmetrisch („wandert von rechts rein"): B wird jetzt um die Mitte des A-Zyklus
+  gelesen (`phase_b_at` in `curve_a`), Test mit Ring-Modulation (spiegelsymmetrisch).
+
 ## Nächste Schritte (Reihenfolge nach Absprache)
 
 1. **Gestaltungsprinzip / Farbsystem (Bitwig-/Massive-X-artig, eigene Umsetzung).** Dunkle Flächen bleiben (Theme),

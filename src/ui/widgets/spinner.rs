@@ -221,43 +221,76 @@ pub fn spinner_grid(
     response
 }
 
-/// The compact look: one slim line, a rounded box in `controlFill` with the label small at the left, the value at the
-/// right and a small chevron at the end that says a tap opens the list. The box is at most 1.5 `U` high, centred in the
-/// control's rect.
+/// The compact look: a rounded box in `controlFill` with the label small and the value in the control's colour, and a
+/// small chevron at the right that says a tap opens the list. When label and value fit side by side the box is one slim
+/// line (at most 1.5 `U` high, the label at the left, the value at the right); when they do not (a narrow column), the
+/// label sits over the value, centred, in a box of at most 2 `U`. Either way nothing overlaps.
 fn paint_compact(ui: &Ui, cx: &UiCtx, c: &Control, item: &str) {
     let (m, colors) = (cx.m, &cx.theme.colors);
-    let height = c.rect.height().min(m.u(1.5));
-    let face = Rect::from_center_size(
-        c.rect.center(),
-        vec2((c.rect.width() - m.t() * 4.0).max(0.0), height),
-    );
     let painter = ui.painter();
-    painter.rect_filled(face, m.t() * 3.0, colors.control_fill.to_color32());
-    if !c.label.is_empty() {
+    let (label_font, value_font) = (m.font_id(c.label_font), m.font_id(VALUE_FONT));
+    let width_of = |text: &str, font: &eframe::egui::FontId| {
+        painter
+            .layout_no_wrap(text.to_owned(), font.clone(), c.channel)
+            .size()
+            .x
+    };
+    let (t, chevron_room) = (m.t(), m.t() * 11.0);
+    let face_width = (c.rect.width() - t * 4.0).max(0.0);
+    let one_line = c.label.is_empty()
+        || t * 4.0
+            + width_of(c.label, &label_font)
+            + t * 4.0
+            + width_of(item, &value_font)
+            + chevron_room
+            <= face_width;
+    let height = c.rect.height().min(m.u(if one_line { 1.5 } else { 2.0 }));
+    let face = Rect::from_center_size(c.rect.center(), vec2(face_width, height));
+    painter.rect_filled(face, t * 3.0, colors.control_fill.to_color32());
+    if one_line {
+        if !c.label.is_empty() {
+            painter.text(
+                pos2(face.left() + t * 4.0, face.center().y),
+                Align2::LEFT_CENTER,
+                c.label,
+                label_font,
+                c.channel.gamma_multiply(0.7),
+            );
+        }
         painter.text(
-            pos2(face.left() + m.t() * 4.0, face.center().y),
-            Align2::LEFT_CENTER,
+            pos2(face.right() - chevron_room, face.center().y),
+            Align2::RIGHT_CENTER,
+            item,
+            value_font,
+            c.channel,
+        );
+    } else {
+        // The label over the value, both centred in what the chevron leaves.
+        let x = face.center().x - t * 3.0;
+        painter.text(
+            pos2(x, face.top() + height * 0.3),
+            Align2::CENTER_CENTER,
             c.label,
-            m.font_id(c.label_font),
+            label_font,
             c.channel.gamma_multiply(0.7),
         );
+        painter.text(
+            pos2(x, face.top() + height * 0.7),
+            Align2::CENTER_CENTER,
+            item,
+            value_font,
+            c.channel,
+        );
     }
-    painter.text(
-        pos2(face.right() - m.t() * 11.0, face.center().y),
-        Align2::RIGHT_CENTER,
-        item,
-        m.font_id(VALUE_FONT),
-        c.channel,
-    );
-    let at = pos2(face.right() - m.t() * 5.0, face.center().y + m.t());
-    let w = m.t() * 2.0;
+    let at = pos2(face.right() - t * 5.0, face.center().y + t);
+    let w = t * 2.0;
     painter.add(Shape::line(
         vec![
             at + vec2(-w, -w * 0.5),
             at + vec2(0.0, w * 0.5),
             at + vec2(w, -w * 0.5),
         ],
-        Stroke::new(m.t(), c.channel.gamma_multiply(0.7)),
+        Stroke::new(t, c.channel.gamma_multiply(0.7)),
     ));
 }
 

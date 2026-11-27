@@ -1088,8 +1088,9 @@ pub enum EnvelopeKind {
     Eg,
 }
 
-/// An envelope for a display: its curve over a width split into fixed shares per stage (so a 2 ms attack and a 20 s
-/// decay are both readable), and the real times for the labels.
+/// An envelope for a display: its curve over a width split into a share per stage that follows the stage's time loosely
+/// (so a 2 ms attack and a 20 s decay are both readable, and the picture moves with the knobs), and the real times for the
+/// labels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnvelopePreview {
     /// 0…1, evenly spaced over the display's width.
@@ -1105,11 +1106,21 @@ pub struct EnvelopePreview {
     pub sustain: f32,
 }
 
-/// The share of the display each stage takes, with and without a release.
-const ENV_SHARES: [f32; 4] = [0.22, 0.30, 0.13, 0.35];
-const ENV_SHARES_NO_RELEASE: [f32; 4] = [0.28, 0.72, 0.0, 0.0];
+/// The least share a stage's weight has: the shortest stage still takes about a tenth of the width, so it reads.
+const ENV_MIN_WEIGHT: f32 = 0.35;
+/// The weight of the sustain hold, between decay and release.
+const ENV_HOLD_WEIGHT: f32 = 0.45;
 /// A decay or release is drawn until it is within 0.5 % of where it goes (ln 200 time constants).
 const ENV_SETTLE: f32 = 5.298_317;
+
+/// A stage's weight for its share of the display: the least ([`ENV_MIN_WEIGHT`]) for 2 ms or less, growing with the
+/// logarithm of its time to a share three times as large at 20 s. So a longer stage visibly takes more of the width
+/// without a short one vanishing, and the picture moves when ATTACK, DECAY or RELEASE do.
+fn env_weight(seconds: f32) -> f32 {
+    let (lo, hi) = (0.002_f32.log10(), 20.0_f32.log10());
+    let g = ((seconds.max(0.002).log10() - lo) / (hi - lo)).clamp(0.0, 1.0);
+    ENV_MIN_WEIGHT + g
+}
 
 /// The envelope `kind` of params `v`: the engine's own one-pole curves (attack aims at 5.0 and ends at 1, decay and
 /// release are exponentials), drawn stage by stage over fixed shares of `points` evenly spaced points, with the real
@@ -1135,15 +1146,22 @@ pub fn envelope_preview(kind: EnvelopeKind, v: &[f32], points: usize) -> Envelop
         ENV_SETTLE * (200.0 * decay.powi(7) + 0.001) / RATE_SCALE,
         release.map_or(0.0, |t| ENV_SETTLE * t / RATE_SCALE),
     ];
-    let shares = if release.is_some() {
-        ENV_SHARES
+    // The width of each stage follows its time, loosely ([`env_weight`]).
+    let weights = if release.is_some() {
+        [
+            env_weight(seconds[0]),
+            env_weight(seconds[1]),
+            ENV_HOLD_WEIGHT,
+            env_weight(seconds[2]),
+        ]
     } else {
-        ENV_SHARES_NO_RELEASE
+        [env_weight(seconds[0]), env_weight(seconds[1]), 0.0, 0.0]
     };
+    let sum: f32 = weights.iter().sum();
     let mut ends = [0.0; 4];
     let mut total = 0.0;
-    for (end, share) in ends.iter_mut().zip(shares) {
-        total += share;
+    for (end, weight) in ends.iter_mut().zip(weights) {
+        total += weight / sum;
         *end = total;
     }
     if release.is_none() {
@@ -1719,6 +1737,12 @@ mod tests {
                 "attack {attack} rises"
             );
         }
+        // A longer attack takes a larger share of the width, a shorter one a smaller: the picture moves with the knob.
+        v[25] = 0.1;
+        let quick = envelope_preview(EnvelopeKind::Filter, &v, 100).ends[0];
+        v[25] = 0.9;
+        let slow = envelope_preview(EnvelopeKind::Filter, &v, 100).ends[0];
+        assert!(slow > quick + 0.05, "{slow} {quick}");
         // A longer decay is a longer time, on the same width.
         let short = envelope_preview(EnvelopeKind::Filter, &v, 100).seconds[1];
         v[26] = 0.8;

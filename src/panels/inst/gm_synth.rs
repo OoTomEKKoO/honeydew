@@ -36,9 +36,6 @@ fn line(parts: impl IntoIterator<Item = Part>) -> Part {
     hstack(parts)
 }
 
-/// The height of the slim row of compact menus and switches under the knobs, in U.
-const MENUS: f32 = 1.4;
-
 /// A knob row's share of a page's height, against its picture's.
 fn knobs(parts: impl IntoIterator<Item = Part>, share: f32) -> Part {
     line(parts).h(Size::Flex(share))
@@ -49,10 +46,20 @@ fn picture(id: u32, draw: crate::panels::Draw, share: f32) -> Part {
     line([display(id).draw(draw).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(share))
 }
 
+/// A page's main part with its menus and switches stacked at the right edge, in a column a quarter as wide: they are
+/// used less than the knobs, so the knobs and the picture keep the room.
+fn with_side(main: Part, side: impl IntoIterator<Item = Part>) -> Part {
+    let gap = |part: Part| part.margins(0.12, 0.0, 0.12, 0.0);
+    line([
+        main.w(Size::Flex(3.6)),
+        page(side.into_iter().map(gap)).w(Size::Flex(1.0)),
+    ])
+}
+
 pub fn panel() -> Option<Panel> {
     // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own. A picture
-    // on top of what it shows, the knobs under it (input below, as on a phone's keyboard), and the menus and switches in
-    // a slim row at the foot.
+    // on top of what it shows, the knobs under it (input below, as on a phone's keyboard), and the menus and switches
+    // stacked at the right edge. Each page has its accent ([`Accent`]).
     Some(Panel::new(pager(
         tabs(0, TABS).h(Size::U(1.25)),
         tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
@@ -106,19 +113,21 @@ pub fn panel() -> Option<Panel> {
             ),
             // MOD
             tint(
-                page([
-                    picture(31100, env_mod, 2.0),
-                    knobs(
-                        [
-                            knob(31000, "MOD. AMNT").p(15),
-                            knob(33000, "ATTACK").p(17),
-                            knob(34000, "DECAY").p(18),
-                            knob(35000, "EG AMOUNT").p(19),
-                            knob(37000, "MW AMOUNT").default(0.5),
-                        ],
-                        1.5,
-                    ),
-                    line([
+                with_side(
+                    page([
+                        picture(31100, env_mod, 2.0),
+                        knobs(
+                            [
+                                knob(31000, "MOD. AMNT").p(15),
+                                knob(33000, "ATTACK").p(17),
+                                knob(34000, "DECAY").p(18),
+                                knob(35000, "EG AMOUNT").p(19),
+                                knob(37000, "MW AMOUNT").default(0.5),
+                            ],
+                            1.5,
+                        ),
+                    ]),
+                    [
                         spinner(32000, "KIND").p(16).compact(),
                         // Honeydew's own: how far FM modulates (`x1` is the original depth).
                         spinner(32100, "FM RANGE").items(FM_RANGES).compact(),
@@ -131,75 +140,73 @@ pub fn panel() -> Option<Panel> {
                             .items(MW_DEST)
                             .default(2.0)
                             .compact(),
-                    ])
-                    .h(Size::U(MENUS)),
-                ]),
+                    ],
+                ),
                 Accent::Mod,
             ),
             // FILTER
             tint(
-                page([
-                    picture(12100, filter_display, 2.4),
-                    knobs(
-                        [
-                            knob(11000, "CUTOFF").p(21),
-                            knob(12000, "RES").p(22),
-                            knob(13000, "ATTACK").p(25),
-                            knob(14000, "DECAY").p(26),
-                            knob(15000, "AMOUNT").p(27),
-                        ],
-                        1.7,
-                    ),
-                    line([
-                        text_toggle(16100, "KBD").p(24).w(Size::Flex(0.45)),
+                with_side(
+                    page([
+                        picture(12100, filter_display, 2.4),
+                        knobs(
+                            [
+                                knob(11000, "CUTOFF").p(21),
+                                knob(12000, "RES").p(22),
+                                knob(13000, "ATTACK").p(25),
+                                knob(14000, "DECAY").p(26),
+                                knob(15000, "AMOUNT").p(27),
+                            ],
+                            1.7,
+                        ),
+                    ]),
+                    [
+                        text_toggle(16100, "KBD").p(24),
                         spinner(16200, "KIND").p(23).compact(),
                         // Honeydew's own extra filter types.
                         spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
-                    ])
-                    .h(Size::U(MENUS)),
-                ]),
+                    ],
+                ),
                 Accent::Filter,
             ),
             // EG
             tint(
-                page([
-                    picture(51100, env_eg, 2.0),
-                    knobs(
-                        [
-                            knob(51000, "AMOUNT").p(40),
-                            knob(52000, "ATTACK").p(36),
-                            knob(53000, "DECAY").p(37),
-                            knob(54000, "SUSTAIN").p(38),
-                            knob(55000, "RELEASE").p(39),
-                        ],
-                        1.5,
-                    ),
-                    line([
-                        text_toggle(56100, "VEL").p(74).w(Size::Flex(0.45)),
+                with_side(
+                    page([
+                        picture(51100, env_eg, 2.0),
+                        knobs(
+                            [
+                                knob(51000, "AMOUNT").p(40),
+                                knob(52000, "ATTACK").p(36),
+                                knob(53000, "DECAY").p(37),
+                                knob(54000, "SUSTAIN").p(38),
+                                knob(55000, "RELEASE").p(39),
+                            ],
+                            1.5,
+                        ),
+                    ]),
+                    [
+                        text_toggle(56100, "VEL").p(74),
                         spinner(56200, "DEST").p(41).compact(),
-                    ])
-                    .h(Size::U(MENUS)),
-                ]),
+                    ],
+                ),
                 Accent::Envelope,
             ),
             // LFO
             tint(
-                page([
-                    picture(61100, lfo_display, 2.2),
-                    knobs(
-                        [
-                            knob(61000, "AMOUNT").p(34),
-                            spinner(62000, "SHAPE").p(33).compact(),
-                            spinner(63000, "DEST").p(35).compact(),
-                            spinner(64000, "RATE").p(32).items_per_column(5).compact(),
-                        ],
-                        1.3,
-                    ),
-                ]),
+                with_side(
+                    picture(61100, lfo_display, 1.0),
+                    [
+                        knob(61000, "AMOUNT").p(34).h(Size::Flex(1.8)),
+                        spinner(62000, "SHAPE").p(33).compact(),
+                        spinner(63000, "DEST").p(35).compact(),
+                        spinner(64000, "RATE").p(32).items_per_column(5).compact(),
+                    ],
+                ),
                 Accent::Lfo,
             ),
             // VOICES
-            page([
+            with_side(
                 knobs(
                     [
                         knob(71000, "TRNSP").p(28),
@@ -209,14 +216,13 @@ pub fn panel() -> Option<Panel> {
                     ],
                     1.0,
                 ),
-                line([
-                    text_toggle(75100, "MONO").p(30).w(Size::Flex(0.6)),
-                    text_toggle(75200, "AUTO").p(31).w(Size::Flex(0.6)),
+                [
+                    text_toggle(75100, "MONO").p(30),
+                    text_toggle(75200, "AUTO").p(31),
                     spinner(76100, "VOICES").p(42).compact(),
                     spinner(76200, "SCALE").p(43).compact(),
-                ])
-                .h(Size::U(MENUS)),
-            ]),
+                ],
+            ),
             tint(fx(), Accent::Fx),
         ],
     )))
@@ -289,11 +295,14 @@ fn curve_a(
         .copied()
         .unwrap_or(1.0);
     let mut restart = 0.0_f64;
-    let mut wraps = ((offset).floor()) as i64;
+    // B is read around the middle of A's cycle, so that its influence is centred on the picture: B runs on over many
+    // cycles of A when it is slower, and a window that began at B's phase would show it sliding in from one side.
+    let phase_b_at = |t: f64| (t - 0.5) * ratio + offset;
+    let mut wraps = phase_b_at(0.0).floor() as i64;
     (0..=steps)
         .map(|i| {
             let t = f64::from(DISPLAY_CYCLES) * i as f64 / steps as f64;
-            let phase_b = t * ratio + offset;
+            let phase_b = phase_b_at(t);
             let b = read_cycle(b, phase_b.rem_euclid(1.0) as f32);
             match kind {
                 0 if amount > 0.001 => read_cycle(a, t as f32) * (1.0 + 3.0 * amount * b),
@@ -789,15 +798,15 @@ pub const REFERENCE: Reference = Reference {
             tab: 3,
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.63]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.08, 3.39, 2.01]).p(21).ink(Ink::Accent(Accent::Filter)),
-                row(12000, Widget::Knob, "RES", [3.39, 4.08, 3.39, 2.01]).p(22).ink(Ink::Accent(Accent::Filter)),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 4.08, 3.39, 2.01]).p(25).ink(Ink::Accent(Accent::Filter)),
-                row(14000, Widget::Knob, "DECAY", [10.17, 4.08, 3.39, 2.01]).p(26).ink(Ink::Accent(Accent::Filter)),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.08, 3.40, 2.01]).p(27).ink(Ink::Accent(Accent::Filter)),
-                row(16100, Widget::TextToggle, "KBD", [0.00, 6.09, 3.11, 1.40]).w(Size::Flex(0.45)).p(24).ink(Ink::Accent(Accent::Filter)),
-                row(16200, Widget::Spinner, "KIND", [3.11, 6.09, 6.92, 1.40]).p(23).ink(Ink::Accent(Accent::Filter)),
-                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.09, 6.93, 1.40]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)),
+                row(12100, Widget::Display, "", [0.10, 1.35, 13.07, 3.45]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.90, 2.65, 2.59]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [2.65, 4.90, 2.65, 2.59]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [5.30, 4.90, 2.66, 2.59]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [7.96, 4.90, 2.65, 2.59]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [10.61, 4.90, 2.66, 2.59]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16100, Widget::TextToggle, "KBD", [13.27, 1.37, 3.69, 1.84]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16200, Widget::Spinner, "KIND", [13.27, 3.45, 3.69, 1.84]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.53, 3.69, 1.84]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -808,15 +817,15 @@ pub const REFERENCE: Reference = Reference {
             height: Some(16.0),
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.93]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.38, 3.39, 2.22]).p(21).ink(Ink::Accent(Accent::Filter)),
-                row(12000, Widget::Knob, "RES", [3.39, 4.38, 3.39, 2.22]).p(22).ink(Ink::Accent(Accent::Filter)),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 4.38, 3.39, 2.22]).p(25).ink(Ink::Accent(Accent::Filter)),
-                row(14000, Widget::Knob, "DECAY", [10.17, 4.38, 3.39, 2.22]).p(26).ink(Ink::Accent(Accent::Filter)),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.38, 3.40, 2.22]).p(27).ink(Ink::Accent(Accent::Filter)),
-                row(16100, Widget::TextToggle, "KBD", [0.00, 6.60, 3.11, 1.40]).w(Size::Flex(0.45)).p(24).ink(Ink::Accent(Accent::Filter)),
-                row(16200, Widget::Spinner, "KIND", [3.11, 6.60, 6.92, 1.40]).p(23).ink(Ink::Accent(Accent::Filter)),
-                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.60, 6.93, 1.40]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)),
+                row(12100, Widget::Display, "", [0.10, 1.35, 13.07, 3.75]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 5.20, 2.65, 2.80]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [2.65, 5.20, 2.65, 2.80]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [5.30, 5.20, 2.66, 2.80]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [7.96, 5.20, 2.65, 2.80]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [10.61, 5.20, 2.66, 2.80]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16100, Widget::TextToggle, "KBD", [13.27, 1.37, 3.69, 2.01]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16200, Widget::Spinner, "KIND", [13.27, 3.62, 3.69, 2.01]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.87, 3.69, 2.01]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
                 row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
@@ -848,16 +857,16 @@ pub const REFERENCE: Reference = Reference {
             tab: 2,
             rows: &[
                 STRIP,
-                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Mod)),
-                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 4.01, 3.39, 2.08]).p(15).ink(Ink::Accent(Accent::Mod)),
-                row(33000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(17).ink(Ink::Accent(Accent::Mod)),
-                row(34000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(18).ink(Ink::Accent(Accent::Mod)),
-                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 4.01, 3.39, 2.08]).p(19).ink(Ink::Accent(Accent::Mod)),
-                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 4.01, 3.40, 2.08]).ink(Ink::Accent(Accent::Mod)),
-                row(32000, Widget::Spinner, "KIND", [0.00, 6.09, 4.24, 1.40]).p(16).ink(Ink::Accent(Accent::Mod)),
-                row(32100, Widget::Spinner, "FM RANGE", [4.24, 6.09, 4.24, 1.40]).items("x1 · x4 · x8 · x16").ink(Ink::Accent(Accent::Mod)),
-                row(36100, Widget::Spinner, "PB RANGE", [8.48, 6.09, 4.24, 1.40]).items("1 smt · 2 smt · 7 smt · Oct").ink(Ink::Accent(Accent::Mod)),
-                row(36200, Widget::Spinner, "MW DEST", [12.72, 6.09, 4.24, 1.40]).items("Filter · LFO · Osc. Mod.").ink(Ink::Accent(Accent::Mod)),
+                row(31100, Widget::Display, "", [0.10, 1.35, 13.07, 3.36]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Mod)),
+                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 4.81, 2.65, 2.68]).p(15).ink(Ink::Accent(Accent::Mod)),
+                row(33000, Widget::Knob, "ATTACK", [2.65, 4.81, 2.65, 2.68]).p(17).ink(Ink::Accent(Accent::Mod)),
+                row(34000, Widget::Knob, "DECAY", [5.30, 4.81, 2.66, 2.68]).p(18).ink(Ink::Accent(Accent::Mod)),
+                row(35000, Widget::Knob, "EG AMOUNT", [7.96, 4.81, 2.65, 2.68]).p(19).ink(Ink::Accent(Accent::Mod)),
+                row(37000, Widget::Knob, "MW AMOUNT", [10.61, 4.81, 2.66, 2.68]).ink(Ink::Accent(Accent::Mod)),
+                row(32000, Widget::Spinner, "KIND", [13.27, 1.37, 3.69, 1.32]).p(16).ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
+                row(32100, Widget::Spinner, "FM RANGE", [13.27, 2.93, 3.69, 1.32]).items("x1 · x4 · x8 · x16").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
+                row(36100, Widget::Spinner, "PB RANGE", [13.27, 4.49, 3.69, 1.32]).items("1 smt · 2 smt · 7 smt · Oct").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
+                row(36200, Widget::Spinner, "MW DEST", [13.27, 6.05, 3.69, 1.32]).items("Filter · LFO · Osc. Mod.").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -881,14 +890,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 4,
             rows: &[
                 STRIP,
-                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Envelope)),
-                row(51000, Widget::Knob, "AMOUNT", [0.00, 4.01, 3.39, 2.08]).p(40).ink(Ink::Accent(Accent::Envelope)),
-                row(52000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(36).ink(Ink::Accent(Accent::Envelope)),
-                row(53000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(37).ink(Ink::Accent(Accent::Envelope)),
-                row(54000, Widget::Knob, "SUSTAIN", [10.17, 4.01, 3.39, 2.08]).p(38).ink(Ink::Accent(Accent::Envelope)),
-                row(55000, Widget::Knob, "RELEASE", [13.56, 4.01, 3.40, 2.08]).p(39).ink(Ink::Accent(Accent::Envelope)),
-                row(56100, Widget::TextToggle, "VEL", [0.00, 6.09, 5.26, 1.40]).w(Size::Flex(0.45)).p(74).ink(Ink::Accent(Accent::Envelope)),
-                row(56200, Widget::Spinner, "DEST", [5.26, 6.09, 11.70, 1.40]).p(41).ink(Ink::Accent(Accent::Envelope)),
+                row(51100, Widget::Display, "", [0.10, 1.35, 13.07, 3.36]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Envelope)),
+                row(51000, Widget::Knob, "AMOUNT", [0.00, 4.81, 2.65, 2.68]).p(40).ink(Ink::Accent(Accent::Envelope)),
+                row(52000, Widget::Knob, "ATTACK", [2.65, 4.81, 2.65, 2.68]).p(36).ink(Ink::Accent(Accent::Envelope)),
+                row(53000, Widget::Knob, "DECAY", [5.30, 4.81, 2.66, 2.68]).p(37).ink(Ink::Accent(Accent::Envelope)),
+                row(54000, Widget::Knob, "SUSTAIN", [7.96, 4.81, 2.65, 2.68]).p(38).ink(Ink::Accent(Accent::Envelope)),
+                row(55000, Widget::Knob, "RELEASE", [10.61, 4.81, 2.66, 2.68]).p(39).ink(Ink::Accent(Accent::Envelope)),
+                row(56100, Widget::TextToggle, "VEL", [13.27, 1.37, 3.69, 2.88]).p(74).ink(Ink::Accent(Accent::Envelope)).margins(0.12, 0.0, 0.12, 0.0),
+                row(56200, Widget::Spinner, "DEST", [13.27, 4.49, 3.69, 2.88]).p(41).ink(Ink::Accent(Accent::Envelope)).margins(0.12, 0.0, 0.12, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -897,11 +906,11 @@ pub const REFERENCE: Reference = Reference {
             tab: 5,
             rows: &[
                 STRIP,
-                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.72]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
-                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.17, 4.24, 2.32]).p(34).ink(Ink::Accent(Accent::Lfo)),
-                row(62000, Widget::Spinner, "SHAPE", [4.24, 5.17, 4.24, 2.32]).p(33).ink(Ink::Accent(Accent::Lfo)),
-                row(63000, Widget::Spinner, "DEST", [8.48, 5.17, 4.24, 2.32]).p(35).ink(Ink::Accent(Accent::Lfo)),
-                row(64000, Widget::Spinner, "RATE", [12.72, 5.17, 4.24, 2.32]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)),
+                row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 6.04]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
+                row(61000, Widget::Knob, "AMOUNT", [13.27, 1.37, 3.69, 1.98]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
+                row(62000, Widget::Spinner, "SHAPE", [13.27, 3.59, 3.69, 1.10]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(63000, Widget::Spinner, "DEST", [13.27, 4.93, 3.69, 1.10]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(64000, Widget::Spinner, "RATE", [13.27, 6.27, 3.69, 1.10]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -910,14 +919,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 4.84]).p(28),
-                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 4.84]).p(29),
-                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 4.84]).p(44),
-                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 4.84]).p(45),
-                row(75100, Widget::TextToggle, "MONO", [0.00, 6.09, 3.18, 1.40]).w(Size::Flex(0.6)).p(30),
-                row(75200, Widget::TextToggle, "AUTO", [3.18, 6.09, 3.18, 1.40]).w(Size::Flex(0.6)).p(31),
-                row(76100, Widget::Spinner, "VOICES", [6.36, 6.09, 5.30, 1.40]).p(42),
-                row(76200, Widget::Spinner, "SCALE", [11.66, 6.09, 5.30, 1.40]).p(43),
+                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 3.31, 6.24]).p(28),
+                row(72000, Widget::Knob, "SLIDE", [3.31, 1.25, 3.32, 6.24]).p(29),
+                row(73000, Widget::Knob, "CHOIR DTN", [6.63, 1.25, 3.32, 6.24]).p(44),
+                row(74000, Widget::Knob, "CHOIR STR", [9.95, 1.25, 3.32, 6.24]).p(45),
+                row(75100, Widget::TextToggle, "MONO", [13.27, 1.37, 3.69, 1.32]).p(30).margins(0.12, 0.0, 0.12, 0.0),
+                row(75200, Widget::TextToggle, "AUTO", [13.27, 2.93, 3.69, 1.32]).p(31).margins(0.12, 0.0, 0.12, 0.0),
+                row(76100, Widget::Spinner, "VOICES", [13.27, 4.49, 3.69, 1.32]).p(42).margins(0.12, 0.0, 0.12, 0.0),
+                row(76200, Widget::Spinner, "SCALE", [13.27, 6.05, 3.69, 1.32]).p(43).margins(0.12, 0.0, 0.12, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -1019,6 +1028,25 @@ mod curve_tests {
         // Item 0 is the original depth.
         state.settings.insert(32100, 0.0);
         assert_eq!(curve(&state), x1);
+    }
+
+    #[test]
+    fn a_slow_b_acts_around_the_middle_of_the_picture_not_from_one_side() {
+        let (a, b) = cycles(SINE, SINE);
+        // B two octaves down, at the peak of its sine in the middle of A's cycle: ring modulation is then odd about the
+        // middle (A is, and B's factor is even about its peak), whatever B's pitch.
+        let mut module = module(0.1, 0.5);
+        module.params[11] = 0.0;
+        module.params[14] = 0.25;
+        let n = 400;
+        let curve = curve_a(&a, &b, &module, &PanelState::default(), n);
+        for i in 0..=n / 2 {
+            let (left, right) = (curve[i], curve[n - i]);
+            assert!(
+                (left + right).abs() < 0.02,
+                "{i}: {left} and {right} are not mirror images"
+            );
+        }
     }
 
     #[test]
