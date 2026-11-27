@@ -94,6 +94,16 @@ zu weit verloren gehen.
   `Orig.` = das bisherige RATE-Menü, dessen Stufen in Viertelschlägen beschriftet waren: „1/4" = ein Viertelschlag = 1/16)
   und Schalter KEY (`LFO_KEYSYNC` 65500: jede Note startet den LFO-Zyklus neu, auch beim laufenden Song). CSTM-Felder ab Byte 40/44.
 
+## 3d. Mod-Matrix (Schritt 1, lokal committet, NICHT gepusht, keine APK)
+
+- Engine (`crates/audio/src/gmsynth.rs`): 4 freie Routen (Quelle LFO oder EG, Ziel aus 17 weichen Reglern, Betrag
+  bipolar, Mitte = 0). Die Routen wirken auf eine Kopie der Parameter pro 32-Sample-Block (keine Speicher-Allokation,
+  kaum CPU). Der EG liefert den Wert der neuesten klingenden Stimme. Die alten Einzelziele (`LFO Dest`, `EG Dest`) bleiben.
+- Datei: 12 neue CSTM-Felder ab Byte 48 (`MOD_BASE` 66000), nur geschrieben, wenn benutzt (alte Songs unverändert).
+- Oberfläche: neue Seite MATRIX (nach LFO) mit 4 Zeilen FROM / TO / AMOUNT. Prototyp.
+- Noch offen: Modulationsring am Regler, Inspektor per Langdruck (bisher öffnet der Langdruck nur Reset/Fine tune),
+  Hüllkurven-Quelle pro Stimme, mehr Quellen, mehr Ziele, Drive/Filter-Charakter.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:

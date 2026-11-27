@@ -33,7 +33,47 @@ static LFO_SHAPED: Show = Show::Setting(65100, 0);
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
 const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
-const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX";
+const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX";
+
+/// The sources and targets of Honeydew's free modulation routes (a `CSTM` setting each, see
+/// [`honeydew_audio::gmsynth::MOD_BASE`]); they must match the engine's lists.
+const MOD_SOURCES: &[&str] = &["Off", "LFO", "EG"];
+const MOD_TARGETS: &[&str] = &[
+    "Level",
+    "Pan",
+    "Osc B Pitch",
+    "Osc B Detune",
+    "Balance",
+    "Mod Amount",
+    "Noise",
+    "Cutoff",
+    "Resonance",
+    "Filter EG",
+    "EG Amount",
+    "LFO Amount",
+    "Choir Detune",
+    "Choir Stereo",
+    "FX 1 X",
+    "FX 1 Y",
+    "FX 2 X",
+];
+
+/// One route of the MATRIX page: its source and target menus over its bipolar amount knob (centre = 0).
+fn route(slot: u32) -> Part {
+    let id = 66000 + 10 * slot;
+    line([
+        spinner(id, "FROM")
+            .items(MOD_SOURCES)
+            .compact()
+            .w(Size::Flex(1.0)),
+        spinner(id + 1, "TO")
+            .items(MOD_TARGETS)
+            .items_per_column(6)
+            .compact()
+            .w(Size::Flex(1.6)),
+        knob(id + 2, "AMOUNT").default(0.5).w(Size::Flex(1.2)),
+    ])
+}
 
 /// A page of rows of controls, top to bottom.
 fn page(rows: impl IntoIterator<Item = Part>) -> Part {
@@ -234,6 +274,8 @@ pub fn panel() -> Option<Panel> {
                 ),
                 Accent::Lfo,
             ),
+            // MATRIX: free routes of the LFO or the EG to any listed knob.
+            tint(page([route(0), route(1), route(2), route(3)]), Accent::Lfo),
             // VOICES
             with_side(
                 knobs(
@@ -926,7 +968,7 @@ fn fx() -> Part {
 const STRIP: Row = row(
     0,
     Widget::Tabs,
-    "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX",
+    "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX",
     [0.0, 0.0, 16.96, 1.25],
 )
 .h(Size::U(1.25));
@@ -952,7 +994,7 @@ pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
     // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
     // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1 and the LFO's MODE, LOW and HIGH (65100–65300).
-    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (65400, 0.0), (65500, 0.0), (81100, 0.0)],
+    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (65400, 0.0), (65500, 0.0), (66000, 0.0), (66001, 0.0), (66002, 0.5), (66010, 0.0), (66011, 0.0), (66012, 0.5), (66020, 0.0), (66021, 0.0), (66022, 0.5), (66030, 0.0), (66031, 0.0), (66032, 0.5), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -987,7 +1029,7 @@ pub const REFERENCE: Reference = Reference {
                 row(16100, Widget::TextToggle, "KBD", [13.27, 1.31, 3.69, 2.13]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
-                row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
+                row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
                 row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 3.39, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
@@ -1098,8 +1140,28 @@ pub const REFERENCE: Reference = Reference {
             ..Case::DEFAULT
         },
         Case {
-            name: "VOICES",
+            name: "MATRIX",
             tab: 6,
+            rows: &[
+                STRIP,
+                row(66000, Widget::Spinner, "FROM", [0.00, 1.25, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
+                row(66001, Widget::Spinner, "TO", [4.46, 1.25, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66002, Widget::Knob, "AMOUNT", [11.60, 1.25, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
+                row(66010, Widget::Spinner, "FROM", [0.00, 2.81, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
+                row(66011, Widget::Spinner, "TO", [4.46, 2.81, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66012, Widget::Knob, "AMOUNT", [11.60, 2.81, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
+                row(66020, Widget::Spinner, "FROM", [0.00, 4.37, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
+                row(66021, Widget::Spinner, "TO", [4.46, 4.37, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66022, Widget::Knob, "AMOUNT", [11.60, 4.37, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
+                row(66030, Widget::Spinner, "FROM", [0.00, 5.93, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
+                row(66031, Widget::Spinner, "TO", [4.46, 5.93, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66032, Widget::Knob, "AMOUNT", [11.60, 5.93, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
+            ],
+            ..Case::DEFAULT
+        },
+        Case {
+            name: "VOICES",
+            tab: 7,
             rows: &[
                 STRIP,
                 row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 3.31, 6.24]).p(28),
@@ -1115,7 +1177,7 @@ pub const REFERENCE: Reference = Reference {
         },
         Case {
             name: "FX slot 1",
-            tab: 7,
+            tab: 8,
             rows: &[
                 STRIP,
                 SLOTS,
@@ -1131,7 +1193,7 @@ pub const REFERENCE: Reference = Reference {
         },
         Case {
             name: "FX slot 2",
-            tab: 7,
+            tab: 8,
             settings: &[(81100, 1.0)],
             rows: &[
                 STRIP,
@@ -1148,7 +1210,7 @@ pub const REFERENCE: Reference = Reference {
         },
         Case {
             name: "FX slot 3",
-            tab: 7,
+            tab: 8,
             settings: &[(81100, 2.0)],
             rows: &[
                 STRIP,

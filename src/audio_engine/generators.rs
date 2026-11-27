@@ -197,6 +197,20 @@ mod tests {
     #[test]
     fn gmsynth_takes_the_panels_cstm_keys() {
         let keys: Vec<u32> = GMSYNTH.iter().map(|field| field.n).collect();
+        let routes = (0..gmsynth::MOD_SLOTS as u32).flat_map(|slot| {
+            [
+                gmsynth::MOD_SOURCE,
+                gmsynth::MOD_TARGET,
+                gmsynth::MOD_AMOUNT,
+            ]
+            .map(|field| gmsynth::MOD_BASE + 10 * slot + field)
+        });
+        let keys = keys[..keys.len() - 3 * gmsynth::MOD_SLOTS].to_vec();
+        let routed: Vec<u32> = GMSYNTH[GMSYNTH.len() - 3 * gmsynth::MOD_SLOTS..]
+            .iter()
+            .map(|field| field.n)
+            .collect();
+        assert_eq!(routed, routes.collect::<Vec<_>>());
         assert_eq!(
             keys,
             [

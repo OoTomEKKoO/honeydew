@@ -211,7 +211,8 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 /// `7 smt`, `Oct`), `MW AMOUNT` (`7`) and `MW DEST` (`6.2`, int(2v) of `Filter`, `LFO`, `Osc. Mod.`).
 /// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20 and `FM RANGE`
 /// (`#3.2`: `x1`, `x4`, `x8`, `x16`) at byte 24, the LFO's `MODE` (`#6.5`: `Shape`, `S&H`, `Note`) at 28 and the random
-/// range's `LOW` and `HIGH` (0…1 each) at 32 and 36, the LFO's note-value `SYNC` at 40 and its note restart `KEY` at 44, each written only once it is not its default, so a song that never
+/// range's `LOW` and `HIGH` (0…1 each) at 32 and 36, the LFO's note-value `SYNC` at 40 and its note restart `KEY` at 44 and, from 48, four free modulation routes of 12 bytes each (source, target, amount; see
+/// `honeydew_audio::gmsynth::MOD_BASE`), each written only once it is not its default, so a song that never
 /// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
     f("waveA", 0, 21100, Index(29), 0.0),
@@ -226,6 +227,18 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("LFO HIGH", 36, 65300, Norm, 1.0),
     f("LFO SYNC", 40, 65400, Index(15), 0.0),
     f("LFO KEY", 44, 65500, Index(2), 0.0),
+    f("MOD1 SOURCE", 48, 66000, Index(3), 0.0),
+    f("MOD1 TARGET", 52, 66001, Index(17), 0.0),
+    f("MOD1 AMOUNT", 56, 66002, Norm, 0.5),
+    f("MOD2 SOURCE", 60, 66010, Index(3), 0.0),
+    f("MOD2 TARGET", 64, 66011, Index(17), 0.0),
+    f("MOD2 AMOUNT", 68, 66012, Norm, 0.5),
+    f("MOD3 SOURCE", 72, 66020, Index(3), 0.0),
+    f("MOD3 TARGET", 76, 66021, Index(17), 0.0),
+    f("MOD3 AMOUNT", 80, 66022, Norm, 0.5),
+    f("MOD4 SOURCE", 84, 66030, Index(3), 0.0),
+    f("MOD4 TARGET", 88, 66031, Index(17), 0.0),
+    f("MOD4 AMOUNT", 92, 66032, Norm, 0.5),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -851,6 +864,18 @@ mod tests {
                     (65300, 1.0),
                     (65400, 0.0),
                     (65500, 0.0),
+                    (66000, 0.0),
+                    (66001, 0.0),
+                    (66002, 0.5),
+                    (66010, 0.0),
+                    (66011, 0.0),
+                    (66012, 0.5),
+                    (66020, 0.0),
+                    (66021, 0.0),
+                    (66022, 0.5),
+                    (66030, 0.0),
+                    (66031, 0.0),
+                    (66032, 0.5),
                 ]),
             ),
             (
@@ -1008,6 +1033,24 @@ mod tests {
         }
     }
 
+    /// A modulation route grows the blob to hold it, keeps the older bytes, and reads back.
+    #[test]
+    fn gmsynth_mod_routes_grow_the_blob_and_read_back() {
+        let blob = [5u32.to_le_bytes(), 17u32.to_le_bytes()].concat();
+        let routes = map([(66010, 1.0), (66011, 7.0), (66012, 0.75)]);
+        let saved = cstm_from_settings(2, &routes, Some(&blob)).unwrap();
+        assert!(saved.len() >= 48 + 12 * 2, "grown to the second route");
+        let back = settings_from_cstm(2, &saved).unwrap();
+        for (key, value) in routes {
+            assert_eq!(back[&key], value);
+        }
+        // The first route and the older fields keep their defaults.
+        assert_eq!((back[&66000], back[&66002], back[&21100]), (0.0, 0.5, 5.0));
+        // No route: no growth beyond the older bytes.
+        let none = cstm_from_settings(2, &map([(66000, 0.0)]), Some(&blob)).unwrap();
+        assert_eq!(none.len(), 20, "saved as the original 20 bytes, no more");
+    }
+
     /// Only the waves are required; a missing float keeps its default, and saving writes a whole blob.
     #[test]
     fn gmsynth_short_blobs_load_the_waves_and_default_the_rest() {
@@ -1027,6 +1070,18 @@ mod tests {
                 (65300, 1.0),
                 (65400, 0.0),
                 (65500, 0.0),
+                (66000, 0.0),
+                (66001, 0.0),
+                (66002, 0.5),
+                (66010, 0.0),
+                (66011, 0.0),
+                (66012, 0.5),
+                (66020, 0.0),
+                (66021, 0.0),
+                (66022, 0.5),
+                (66030, 0.0),
+                (66031, 0.0),
+                (66032, 0.5),
             ]);
             m.extend(extra.iter().copied());
             Some(m)

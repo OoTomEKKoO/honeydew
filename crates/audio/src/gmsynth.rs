@@ -110,6 +110,53 @@ pub const LFO_SYNC_BEATS: [f32; 14] = [
 /// Honeydew's LFO key sync: with it on (item 1), each note restarts the LFO's cycle, so it does not run on between
 /// notes. Kept in the `CSTM` blob after [`LFO_SYNC`].
 pub const LFO_KEYSYNC: u32 = 65500;
+
+/// Honeydew's free modulation routes (the "mod matrix"): [`MOD_SLOTS`] slots, each sending the LFO or the EG to any
+/// parameter of [`MOD_TARGETS`] with a bipolar amount. A slot's three settings are `MOD_BASE + 10·slot + field`
+/// ([`MOD_SOURCE`], [`MOD_TARGET`], [`MOD_AMOUNT`]), kept in the `CSTM` blob after [`LFO_KEYSYNC`], so a song that
+/// uses no route keeps the original bytes. The older single destinations (`LFO Dest`, `EG Dest`) stay as they are.
+pub const MOD_BASE: u32 = 66000;
+pub const MOD_SLOTS: usize = 4;
+pub const MOD_SOURCE: u32 = 0;
+pub const MOD_TARGET: u32 = 1;
+pub const MOD_AMOUNT: u32 = 2;
+/// A route's source: 0 off, 1 the LFO (−1…1), 2 the EG (0…1, the newest sounding voice's).
+pub const MOD_SOURCES: [&str; 3] = ["Off", "LFO", "EG"];
+/// The parameters a route may drive: only smooth knobs, never menus or switches (a modulated menu would flicker
+/// between its items). Level, Pan, Osc B pitch/detune/mix, Osc Mod, Noise, Cutoff, Resonance, Filter contour, EG
+/// contour, LFO amount, Choir detune/stereo, and the three FX slots' X and Y.
+pub const MOD_TARGETS: [usize; 17] = [
+    1, 2, 11, 12, 13, 15, 20, 21, 22, 27, 40, 34, 44, 45, 51, 52, 58,
+];
+pub const MOD_TARGET_NAMES: [&str; 17] = [
+    "Level",
+    "Pan",
+    "Osc B Pitch",
+    "Osc B Detune",
+    "Balance",
+    "Mod Amount",
+    "Noise",
+    "Cutoff",
+    "Resonance",
+    "Filter EG",
+    "EG Amount",
+    "LFO Amount",
+    "Choir Detune",
+    "Choir Stereo",
+    "FX 1 X",
+    "FX 1 Y",
+    "FX 2 X",
+];
+
+/// One modulation route as the engine holds it.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+struct Route {
+    source: u8,
+    /// Index into [`MOD_TARGETS`].
+    target: usize,
+    /// −1…1.
+    amount: f32,
+}
 const LFO_SAMPLE_HOLD: u8 = 1;
 const LFO_PER_NOTE: u8 = 2;
 const EXTRA_BP: u8 = 1;
@@ -712,6 +759,8 @@ pub struct GmSynth {
     /// counts its cycles from (the song's, while it plays) and the cycles at the last sample.
     lfo_sync: usize,
     lfo_keysync: bool,
+    /// `CSTM`: the free modulation routes ([`MOD_BASE`]).
+    routes: [Route; MOD_SLOTS],
     lfo_origin: f64,
     lfo_cycles: f64,
     /// The panel's live values ([`LIVE_LEN`]) and the probe that makes the spectrum in them.
@@ -767,6 +816,7 @@ impl GmSynth {
             lfo_last_phase: 0.0,
             lfo_sync: 0,
             lfo_keysync: false,
+            routes: [Route::default(); MOD_SLOTS],
             lfo_origin: 0.0,
             lfo_cycles: 0.0,
             live: vec![0.0; LIVE_LEN].into(),
@@ -827,6 +877,32 @@ impl GmSynth {
 
     /// The block laws, at `frame` of the call.
     fn control(&mut self, context: &ProcessContext, frame: usize) {
+        let lfo_shape = ((2.0 * self.params[33]) as u8).min(2);
+        let lfo_now = if self.lfo_mode == 0 {
+            lfo_value(lfo_shape, self.lfo_phase_at(context, frame))
+        } else {
+            self.lfo_held
+        };
+        // Free routes: the LFO or the EG added to a copy of the params, so that every law below, the FX slots'
+        // included, reads the modulated value. A copy of 75 floats per 32-sample block, no allocation.
+        let mut eff = self.params;
+        let eg_now = self
+            .voices
+            .iter()
+            .filter(|voice| voice.sounding())
+            .max_by_key(|voice| voice.age)
+            .map_or(0.0, |voice| voice.eg.e);
+        for route in &self.routes {
+            let source = match route.source {
+                1 => lfo_now,
+                2 => eg_now,
+                _ => continue,
+            };
+            if route.amount != 0.0 {
+                let target = &mut eff[MOD_TARGETS[route.target]];
+                *target = (*target + route.amount * source).clamp(0.0, 1.0);
+            }
+        }
         // FX LFOs: frac(song beats / R_eff) at the block start while the song plays, else free-running. The FX block
         // is this 32-sample control block.
         let start_beat = if context.playing {
@@ -836,16 +912,10 @@ impl GmSynth {
         };
         for (slot, (bank, kind)) in self.fx.iter_mut().zip(&mut self.fx_kinds).enumerate() {
             let settings;
-            (*kind, settings) = fx_slot(&self.params, slot);
+            (*kind, settings) = fx_slot(&eff, slot);
             bank.prepare_block(&settings, context.tempo_bpm, start_beat, BLOCK);
         }
-        let lfo_shape = ((2.0 * self.params[33]) as u8).min(2);
-        let lfo_now = if self.lfo_mode == 0 {
-            lfo_value(lfo_shape, self.lfo_phase_at(context, frame))
-        } else {
-            self.lfo_held
-        };
-        let v = &self.params;
+        let v = &eff;
         let sr = self.sample_rate;
         let c = &mut self.control;
         let mw = self.wheel * self.mw_amount;
@@ -1585,6 +1655,22 @@ impl Instrument for GmSynth {
                 );
                 self.lfo_held = self.lfo_held.clamp(-1.0 + 2.0 * low, -1.0 + 2.0 * high);
             }
+            key if (MOD_BASE..MOD_BASE + 10 * MOD_SLOTS as u32).contains(&key) => {
+                let slot = ((key - MOD_BASE) / 10) as usize;
+                let route = &mut self.routes[slot];
+                match (key - MOD_BASE) % 10 {
+                    MOD_SOURCE => route.source = (value as usize).min(MOD_SOURCES.len() - 1) as u8,
+                    MOD_TARGET => route.target = (value as usize).min(MOD_TARGETS.len() - 1),
+                    MOD_AMOUNT => {
+                        route.amount = if value.is_finite() {
+                            (2.0 * value - 1.0).clamp(-1.0, 1.0)
+                        } else {
+                            0.0
+                        }
+                    }
+                    _ => {}
+                }
+            }
             FM_RANGE => self.fm_range = (value as usize).min(FM_SCALES.len() - 1),
             FILTER_EXTRA => self.filter_extra = (value as usize).min(usize::from(EXTRA_COMB)) as u8,
             _ => {}
@@ -2095,6 +2181,97 @@ mod tests {
             first > last + 0.1,
             "and it closes again as it decays: {first} then {last}"
         );
+    }
+
+    /// The reported cutoff over `blocks` blocks of 1000 samples with a held note, after `setup`.
+    fn cutoff_track(setup: impl FnOnce(&mut GmSynth), blocks: usize) -> Vec<f32> {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(21, 0.5); // CUTOFF
+        setup(&mut synth);
+        synth.note_on(60, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 1000], vec![0.0; 1000]);
+        (0..blocks)
+            .map(|_| {
+                synth.process(&mut left, &mut right, STOPPED);
+                synth.analysis()[LIVE_CUTOFF]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_route_sends_the_lfo_to_any_listed_parameter_and_amount_zero_changes_nothing() {
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32;
+        let route = |synth: &mut GmSynth, amount: f32| {
+            synth.set_parameter(32, 0.0); // fast LFO
+            synth.set_parameter(34, 0.5); // the old LFO amount stays 0
+            synth.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+            synth.set_setting(MOD_BASE + MOD_TARGET, cutoff);
+            synth.set_setting(MOD_BASE + MOD_AMOUNT, amount);
+        };
+        let plain = cutoff_track(|_| {}, 40);
+        let zero = cutoff_track(|s| route(s, 0.5), 40);
+        assert_eq!(plain, zero, "amount 0 (the centre) is a no-op");
+        let swing = |v: &[f32]| {
+            v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min)
+        };
+        let full = cutoff_track(|s| route(s, 1.0), 40);
+        assert!(
+            swing(&plain) < 1e-6 && swing(&full) > 0.2,
+            "{}",
+            swing(&full)
+        );
+        // A negative amount mirrors it: the two swing around the knob in opposite senses.
+        let neg = cutoff_track(|s| route(s, 0.0), 40);
+        assert!(
+            full.iter()
+                .zip(&neg)
+                .all(|(a, b)| (a + b - 1.0).abs() < 0.02
+                    || *a >= 0.99
+                    || *b >= 0.99
+                    || *a <= 0.01
+                    || *b <= 0.01)
+        );
+        assert!(full.iter().chain(&neg).all(|c| (0.0..=1.0).contains(c)));
+    }
+
+    #[test]
+    fn an_eg_route_follows_the_envelope_and_an_off_source_does_nothing() {
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32;
+        let set = |synth: &mut GmSynth, source: f32| {
+            synth.set_parameter(37, 0.3); // EG DECAY
+            synth.set_parameter(38, 0.0); // EG SUSTAIN
+            synth.set_setting(MOD_BASE + MOD_SOURCE, source);
+            synth.set_setting(MOD_BASE + MOD_TARGET, cutoff);
+            synth.set_setting(MOD_BASE + MOD_AMOUNT, 1.0);
+        };
+        let eg = cutoff_track(|s| set(s, 2.0), 60);
+        assert!(
+            eg[0] > eg[59] + 0.05,
+            "the EG opens it, then it decays: {} {}",
+            eg[0],
+            eg[59]
+        );
+        let off = cutoff_track(|s| set(s, 0.0), 60);
+        assert!(off.iter().all(|c| (c - 0.5).abs() < 1e-6));
+    }
+
+    #[test]
+    fn route_settings_are_clamped_and_broken_values_are_harmless() {
+        let mut synth = GmSynth::new(RATE);
+        for (field, value) in [
+            (MOD_SOURCE, 99.0),
+            (MOD_TARGET, 1e9),
+            (MOD_AMOUNT, f32::NAN),
+        ] {
+            synth.set_setting(MOD_BASE + 30 + field, value);
+        }
+        assert_eq!(synth.routes[3].amount, 0.0);
+        assert_eq!(synth.routes[3].target, MOD_TARGETS.len() - 1);
+        synth.set_setting(MOD_BASE + 39, 1.0);
+        synth.note_on(60, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 256], vec![0.0; 256]);
+        synth.process(&mut left, &mut right, STOPPED);
+        assert!(left.iter().all(|x| x.is_finite()));
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.
