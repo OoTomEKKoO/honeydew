@@ -94,6 +94,8 @@ zu weit verloren gehen.
   `Orig.` = das bisherige RATE-Menü, dessen Stufen in Viertelschlägen beschriftet waren: „1/4" = ein Viertelschlag = 1/16)
   und Schalter KEY (`LFO_KEYSYNC` 65500: jede Note startet den LFO-Zyklus neu, auch beim laufenden Song). CSTM-Felder ab Byte 40/44.
 
+> Regel seit Tag 3: Pushen und Bauen ist erlaubt. Nach Feedback einmal den Plan abstimmen, dann bis zur APK durchziehen.
+
 ## 3d. Mod-Matrix (Schritt 1, lokal committet, NICHT gepusht, keine APK)
 
 - Engine (`crates/audio/src/gmsynth.rs`): 4 freie Routen (Quelle LFO oder EG, Ziel aus 17 weichen Reglern, Betrag
