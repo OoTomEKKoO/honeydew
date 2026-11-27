@@ -80,7 +80,7 @@ impl FrameTable {
             let (re, im) = spectrum(&frame);
             let gain = loudness_gain(&re, &im);
             for level in 0..LEVELS {
-                let table = band_limited(&re, &im, FRAME_LEN / 2 >> level, gain);
+                let table = band_limited(&re, &im, (FRAME_LEN / 2) >> level, gain);
                 let at = (n * LEVELS + level) * STRIDE;
                 data[at..at + FRAME_LEN].copy_from_slice(&table);
                 data[at + FRAME_LEN] = table[0];
