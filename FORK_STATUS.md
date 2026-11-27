@@ -209,6 +209,8 @@ Erkenntnisse nach Code-Lesen (Tag 3), Entscheidung für den Bau:
 
 Offene Frage an den Besitzer (mit obiger Empfehlung A beantwortet, falls er nichts anderes sagt): nur Piano Roll oder auch Drum-Editor/Step-Sequencer.
 
+> Entscheidung Tag 3: FL-Mobile-Kompatibilität nur noch beim Lesen; Schreiben darf neue Felder/Parameter nutzen.
+
 ## 4c. Plan: Wavetable-Oszillatoren (vorgezogen, Entscheidungen des Besitzers von Tag 3)
 
 Entscheidungen: eine gemeinsame Auswahlliste (29 Shapes + Wavetables) pro Oszillator; die Position als echte Parameter

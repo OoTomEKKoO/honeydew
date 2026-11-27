@@ -84,8 +84,10 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
   `src/song`, Parameter in `src/params`, Karte in `src/panels`, DSP in `crates/audio`, Dateiformat in `src/flm`).
   Beim Hinzufügen immer ein bestehendes ähnliches Feature als Vorlage suchen (`grep` nach dem Namen) und alle
   Fundstellen nachbauen.
-- Dateiformat (`.flm`) bleibt kompatibel zu FL Studio Mobile: Unbekannte Chunks werden als `Raw` erhalten.
-  Format-Änderungen nur mit Vorsicht.
+- Dateiformat (`.flm`), Entscheidung des Besitzers (Tag 3): **Lesen bleibt kompatibel** (FL-Mobile-Songs müssen sich in
+  Honeydew öffnen lassen, unbekannte Chunks bleiben als `Raw` erhalten), **Schreiben ist frei**: neue Funktionen dürfen neue
+  Felder und Parameter nutzen, ohne dass FL Mobile die Songs öffnen können muss. Trotzdem nichts Bestehendes brechen
+  (alte Songs müssen weiter laden); größere Formatänderungen mit Tests für das Laden alter Dateien.
 - Keine neuen Abhängigkeiten ohne Rücksprache (Lizenz GPL, Web/Android/iOS müssen weiter bauen).
 - `RELEASE_NOTES.md` und `README.md` beschreiben Nutzer-Features; bei sichtbaren neuen Features ergänzen.
 
