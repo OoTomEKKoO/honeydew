@@ -51,6 +51,7 @@ pub mod voice;
 pub mod wav_writer;
 pub mod waveshaper;
 pub mod wavetable;
+pub mod wavetable_factory;
 
 use biquad::{Biquad, Response, flush};
 use comb::CombState;
