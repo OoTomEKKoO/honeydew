@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: ["**"]
+    # Notes and plans alone are no reason for a test run.
+    paths-ignore: ["**.md"]
   pull_request:
   workflow_dispatch:
 

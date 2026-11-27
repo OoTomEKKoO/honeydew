@@ -5,6 +5,8 @@ name: Android debug APK
 on:
   push:
     branches: ["claude/**"]
+    # Notes and plans alone are no reason for a build.
+    paths-ignore: ["**.md"]
   # `ref`: build that commit instead, for comparing against the original code (same app id and signing key, so it
   # installs over this build and keeps its settings).
   workflow_dispatch:

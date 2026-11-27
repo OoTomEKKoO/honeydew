@@ -109,6 +109,11 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
 - Entwicklung auf einem Feature-Branch, nie direkt auf `main`. Aktueller Arbeitsbranch der Session steht im
   Session-Prompt (z. B. `claude/honeydew-fork-setup-…`).
 - Pull Requests nur auf ausdrücklichen Wunsch.
+- **Builds bündeln, vorher fragen.** Jeder Push auf `claude/**` startet CI und einen Android-Build (Rechenzeit, Wartezeit,
+  eine APK mehr auf dem Handy). Deshalb vor einem Push, der einen Build startet, den/die Besitzer:in fragen, ob noch weitere
+  Änderungen gewünscht sind, und eine eigene Einschätzung dazu geben (reicht der Stand für einen sinnvollen Test, oder ist es
+  zu viel auf einmal und schwer zu beurteilen?). Änderungen sammeln und lokal committen. Reine Doku-Commits mit `[skip ci]`
+  pushen (Markdown-Dateien lösen ohnehin keinen Build aus).
 - Pro Feature: kleine, einzeln lauffähige Schritte, jeder Schritt = ein Commit.
 
 ## Lizenz (GPL-3.0-or-later) – Merkzettel für später
