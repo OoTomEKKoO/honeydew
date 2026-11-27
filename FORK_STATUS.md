@@ -110,6 +110,20 @@ zu weit verloren gehen.
   Modulation (Live-Punkt wäre der nächste Schritt).
 - Noch offen: Live-Punkt am Ring, EG-Quelle pro Stimme, mehr Quellen/Ziele, Charakter-Modi des Filters, P-Locks.
 
+## 3e. Parameter-Locks, Stufe 1 (gebaut, Tests grün)
+
+- Modell: `Lock { tick, key, target, value }` je Noten-Clip (`ClipFileState.locks`), Datei: Honeydew-Chunk `HDLk`
+  (20-Byte-Einträge), nur geschrieben wenn benutzt; FL Studio Mobile überspringt ihn. Kollaborations-Liste kennt das Feld.
+- Wiedergabe (`src/audio_engine/locks.rs`): je gelockter Note zwei geplante Parameter-Schreibungen: Wert beim Notenstart,
+  gespeicherter Reglerwert beim Notenende. Nur Noten-Lanes, nur Instrument-Parameter (nicht Kanalregler, keine Drum-Hits).
+  Grenzen: überlappende Noten geben den Parameter beim Ende der ersten zurück; ein automatisierter Parameter fällt am
+  Notenende auf den gespeicherten Wert, nicht auf die Automation.
+- Bedienung: Piano Roll, Grafikstreifen, dritter Eintrag **Lock**. Kopfzeile antippen → Parameterliste des Instruments
+  (nur Regler, keine Menüs) und "Clear locks". Mit dem Finger über Noten malen setzt deren Lock-Wert; Noten ohne Lock zeigen
+  eine dünne Linie auf dem Reglerwert. Ein Malzug ist ein Undo-Schritt.
+- Noch offen: Locks folgen verschobenen/kopierten Noten (bisher bleibt der Lock an Zeit+Taste; Verschieben löst ihn von
+  der Note), Drum-Editor/Step-Sequencer, Kanalregler, mehrere Parameter gleichzeitig sichtbar, Wert-Anzeige beim Malen.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:

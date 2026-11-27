@@ -97,7 +97,9 @@ pub enum Prop {
 
 /// The piano roll's items.
 pub const ROLL_PROPS: [Prop; 2] = [Prop::Velocity, Prop::Pan];
-pub const ROLL_LABELS: [&str; 2] = ["Vel", "Pan"];
+pub const ROLL_LABELS: [&str; 3] = ["Vel", "Pan", "Lock"];
+/// The piano roll's third item: parameter locks ([`crate::song::Lock`]), which has no [`Prop`] of its own.
+pub const LOCK_ITEM: usize = 2;
 /// The drum editor's items; [`drum_items`] says how many show.
 pub const DRUM_PROPS: [Prop; 4] = [Prop::Velocity, Prop::Pan, Prop::Pitch, Prop::Repeat];
 pub const DRUM_LABELS: [&str; 4] = ["Velocity", "Panning", "Pitch", "Repeat"];
@@ -737,7 +739,7 @@ mod tests {
 
     #[test]
     fn the_selectors_list_the_spec_items_and_repeat_only_in_step_sequencer_mode() {
-        assert_eq!(ROLL_LABELS, ["Vel", "Pan"]);
+        assert_eq!(ROLL_LABELS, ["Vel", "Pan", "Lock"]);
         assert_eq!(ROLL_PROPS, [Prop::Velocity, Prop::Pan]);
         assert_eq!(DRUM_LABELS, ["Velocity", "Panning", "Pitch", "Repeat"]);
         assert_eq!(

@@ -856,7 +856,7 @@ fn attaches(module: &ModuleInstance, notes: bool) -> bool {
 }
 
 /// Whether module type `type_id` is an instrument: a built-in one or a plugin instrument.
-fn is_instrument(type_id: u16) -> bool {
+pub(crate) fn is_instrument(type_id: u16) -> bool {
     module_spec(type_id).is_some_and(|s| s.role == Role::Instrument)
 }
 

@@ -135,6 +135,7 @@
 mod compose;
 mod generate;
 mod humanize;
+mod locks;
 pub(crate) mod notes;
 
 use std::hash::{BuildHasher, RandomState};
@@ -338,6 +339,10 @@ pub struct PianoRoll {
     /// and whether the drag has reported an edit (its end then closes it, even with the notes back as they were).
     pub(crate) graph: GraphLane,
     graph_drag: Option<(Vec<Event>, bool)>,
+    /// The `Lock` item's parameter ([`locks::lockable`]), and whether the paint drag that runs has changed a lock (its
+    /// end then closes an undo step).
+    lock_target: Option<crate::song::AutomationTarget>,
+    lock_drag: Option<bool>,
     /// The graph lane's value snap, `Vel`'s and `Pan`'s ([`graph_lane::ROLL_PROPS`]): app settings, off by default.
     pub value_snap: [ValueSnap; 2],
     /// The graph lane's tab's sideways place, in U from the key column's right edge (PR #87): an app setting, shared
@@ -420,6 +425,9 @@ struct Edit {
 #[derive(Clone, Copy)]
 enum Menu {
     Snap,
+    /// The parameter list of the graph lane's `Lock` item, below the point `Pos2`: its pick is the parameter the lane
+    /// paints, and `Clear` removes its locks ([`locks`]).
+    LockParam(Pos2),
     /// The note menu, centred on the `More...` button.
     More(Pos2),
     /// The note menu in slice mode, at the same place (`Slice...`, #62).
@@ -497,6 +505,8 @@ impl PianoRoll {
             region: RangeSelect::default(),
             graph: GraphLane::default(),
             graph_drag: None,
+            lock_target: None,
+            lock_drag: None,
             value_snap: [ValueSnap::OFF; 2],
             graph_tab_shift: 0.0,
             row: clips::FloatingRow::default(),
@@ -1863,6 +1873,10 @@ impl PianoRoll {
         );
         // From the grid's x: the list column, then a t gap of the frame's `background` (as the grid's).
         let values = content.with_min_x(strip.left() + list_w + m.t());
+        if self.graph.item == graph_lane::LOCK_ITEM {
+            self.lock_lane(ui, id, values, g, song, color, cx, actions);
+            return;
+        }
         let prop = graph_lane::ROLL_PROPS[self.graph.item];
         let land = prop.land(self.value_snap[self.graph.item]);
 
@@ -2017,6 +2031,180 @@ impl PianoRoll {
         }
     }
 
+    /// The graph lane's `Lock` item over `values`: a header that names the parameter (a tap opens the parameter list),
+    /// and under it a bar per note, full height for a lock and a thin line at the saved value for a note without one.
+    /// A drag paints the locks of the notes under the finger ([`locks::paint_locks`]); one that changed a lock is a
+    /// final edit when it ends.
+    #[allow(clippy::too_many_arguments)]
+    fn lock_lane(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: Id,
+        values: Rect,
+        g: &Geom,
+        song: &mut Song,
+        color: Rgba,
+        cx: &UiCtx,
+        actions: &mut Vec<PianoRollAction>,
+    ) {
+        let (m, colors) = (cx.m, &cx.theme.colors);
+        let px = 1.0 / m.ppp();
+        let painter = ui.painter_at(values);
+        painter.rect_filled(values, 0.0, colors.control_fill.to_color32());
+        let options = (song.channels.get(self.channel)).map_or_else(Vec::new, locks::lockable);
+        // A target the channel no longer offers (its instrument was removed) is none.
+        if self
+            .lock_target
+            .is_some_and(|t| !options.iter().any(|(o, _)| *o == t))
+        {
+            self.lock_target = None;
+        }
+        let name = (self.lock_target)
+            .and_then(|t| options.iter().find(|(o, _)| *o == t))
+            .map(|(_, n)| n.as_str());
+        let ink = color.to_color32();
+        let header = Rect::from_min_size(values.min, vec2(m.u(9.0).min(values.width()), m.u(1.0)));
+        let tap = ui.interact(header, id.with("lock param"), Sense::click());
+        let text = match name {
+            Some(n) => format!("Lock: {n}  ▾"),
+            None if options.is_empty() => "No instrument parameters".to_owned(),
+            None => "Lock: tap to choose a parameter  ▾".to_owned(),
+        };
+        painter.rect_filled(
+            header,
+            0.0,
+            ink.gamma_multiply(if tap.is_pointer_button_down_on() {
+                0.35
+            } else {
+                0.18
+            }),
+        );
+        painter.text(
+            header.left_center() + vec2(m.u(0.3), 0.0),
+            Align2::LEFT_CENTER,
+            text,
+            m.font_id(crate::metrics::FontSize::Pt10),
+            colors.text.to_color32(),
+        );
+        if tap.clicked() && !options.is_empty() {
+            self.menu = Some(Menu::LockParam(header.left_bottom() + vec2(m.u(4.0), 0.0)));
+        }
+        let (Some(target), true) = (self.lock_target, values.height() > header.height()) else {
+            return;
+        };
+        let area = values.with_min_y(header.bottom() + px);
+        // The paint.
+        let response = ui.interact(area, id.with("lock paint"), Sense::drag());
+        let live = primary_down_live(ui, response.id);
+        if response.drag_started() && live {
+            self.lock_drag = Some(false);
+        }
+        if let (Some(p), true) = (response.interact_pointer_pos(), response.dragged() && live) {
+            let value = graph_lane::v_at(area, p.y);
+            let tick = g.tick(p.x);
+            let selected = self.selected.clone();
+            let painted = self
+                .clip_mut(song)
+                .is_some_and(|clip| locks::paint_locks(clip, &selected, target, tick, value));
+            if painted {
+                edited(actions, false);
+                self.lock_drag = self.lock_drag.map(|_| true);
+            }
+        }
+        if (response.drag_stopped() || !live) && self.lock_drag.take() == Some(true) {
+            edited(actions, true);
+        }
+        // The bars.
+        let base = song
+            .channels
+            .get(self.channel)
+            .and_then(|c| locks::base_value(c, target));
+        let Some(clip) = self.clip(song) else {
+            return;
+        };
+        let painter = ui.painter_at(area);
+        for (i, e) in clip.events.iter().enumerate() {
+            let Some((pos, len, key)) = note(e) else {
+                continue;
+            };
+            let x0 = m.round_px(g.x(pos));
+            let x1 = g.x(pos + len).max(x0 + px);
+            let selected = self.selected.get(i) == Some(&true);
+            let level = |v: f32| m.round_px(area.bottom() - area.height() * v.clamp(0.0, 1.0));
+            match clip.lock(pos as u32, key, target) {
+                Some(lock) => {
+                    let y = level(lock.value);
+                    let tone = if selected { Color32::WHITE } else { ink };
+                    painter.rect_filled(
+                        Rect::from_x_y_ranges(x0..=x0 + 4.0 * px, y..=area.bottom()),
+                        0.0,
+                        tone,
+                    );
+                    painter.rect_filled(
+                        Rect::from_x_y_ranges(x0..=x1, y..=y + 2.0 * px),
+                        0.0,
+                        tone,
+                    );
+                }
+                None => {
+                    if let Some(v) = base {
+                        let y = level(v);
+                        let faint = ink.gamma_multiply(0.35);
+                        painter.rect_filled(Rect::from_x_y_ranges(x0..=x1, y..=y + px), 0.0, faint);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The `Lock` item's parameter list: `Clear` first (it removes the shown parameter's locks), then one row per
+    /// parameter of the channel's instruments, in columns.
+    fn lock_menu(
+        &mut self,
+        ctx: &egui::Context,
+        id: Id,
+        at: Pos2,
+        song: &mut Song,
+        actions: &mut Vec<PianoRollAction>,
+        cx: &UiCtx,
+    ) {
+        let options = (song.channels.get(self.channel)).map_or_else(Vec::new, locks::lockable);
+        const PER_COLUMN: usize = 9;
+        // The pick is an index into `options`, or `usize::MAX` for `Clear`.
+        let mut items = vec![PopupItem::new(usize::MAX, 0, 0, "Clear locks")];
+        for (i, (target, name)) in options.iter().enumerate() {
+            let slot = i + 1;
+            items.push(PopupItem {
+                current: self.lock_target == Some(*target),
+                ..PopupItem::new(i, slot / PER_COLUMN, slot % PER_COLUMN, name.clone())
+            });
+        }
+        let result = popup::show(
+            ctx,
+            id.with("lock_menu"),
+            at,
+            ctx.content_rect(),
+            &items,
+            cx,
+        );
+        match result.selected {
+            Some(usize::MAX) => {
+                if let Some(target) = self.lock_target
+                    && let Some(clip) = self.clip_mut(song)
+                    && locks::clear_locks(clip, target)
+                {
+                    edited(actions, true);
+                }
+            }
+            Some(i) => self.lock_target = options.get(i).map(|(t, _)| *t),
+            None => {}
+        }
+        if result.close || result.selected.is_some() {
+            self.menu = None;
+            ctx.request_repaint();
+        }
+    }
+
     /// The snap button in `cell` ([`widgets::snap_button`]): a tap toggles snap, a long press or right click opens the
     /// snap menu.
     fn snap_button(&mut self, ui: &mut egui::Ui, id: Id, cell: Rect, ink: Color32, cx: &UiCtx) {
@@ -2125,7 +2313,7 @@ impl PianoRoll {
             Some(Menu::Snap) => {
                 // Beside the time modes, the value snap of the graph lane's item (#32): its percents, then Vel's MIDI
                 // velocities or Pan's left, centre and right.
-                let item = self.graph.item;
+                let item = self.graph.item.min(1);
                 let steps = ["MIDI", "L/C/R"][item];
                 let grids = (ValueGrid::ALL.into_iter()).filter(|&g| g != ValueGrid::Rows);
                 let grids = grids.map(|g| match g {
@@ -2155,6 +2343,7 @@ impl PianoRoll {
                     ctx.request_repaint();
                 }
             }
+            Some(Menu::LockParam(at)) => self.lock_menu(ctx, id, at, song, actions, cx),
             Some(menu @ (Menu::More(at) | Menu::Slice(at))) => {
                 let (name, items) = match menu {
                     Menu::Slice(_) => ("slice_menu", slice_items()),
