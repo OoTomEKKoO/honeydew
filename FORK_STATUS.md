@@ -129,6 +129,26 @@ zu weit verloren gehen.
  Zeitplan-Workflow `lemon-effects.yml` des Originals läuft wöchentlich auf `main` (Abschalten angeboten, noch keine Antwort);
  Veröffentlichung später: GPL-Pflichten, Name/Branding prüfen (siehe CLAUDE.md); FL-Mobile-Kompatibilität der Songs prüfen.
 
+## 4b. Plan: Parameter-Locks (Elektron-Stil) im Piano-Roll-Grafikstreifen
+
+Stand: nur Plan, noch nichts gebaut. Ausgangslage im Code: `src/ui/graph_lane.rs` zeigt unter dem Raster eine Liste
+(`Vel`/`Pan`, `Prop`) und malt eine Eigenschaft der Noten. `Event::Note` (`src/song/lane.rs`) hat nur `velocity`, `pan`,
+`slide`. Automationsziele (`AutomationTarget{instance_id,param}`) gibt es schon, aber nur als eigene Lane mit Kurve.
+
+Idee: Ein P-Lock ist ein Wert für einen Modul-Parameter, der nur für eine Note (Schritt) gilt.
+1. Bedienung: Im Streifen ein "+"-Eintrag unten in der Liste. Tippen öffnet die Parameterliste des Kanal-Instruments
+   (Name aus `src/params`). Der gewählte Parameter wird ein neuer Listeneintrag (Farbe wie sein Modul-Akzent).
+2. Wert setzen: wie bei Vel - Balken pro Note mit dem Finger malen oder ziehen. Noten ohne Lock zeigen den
+   Basiswert des Reglers als dünne Linie; Lock = gefüllter Balken.
+3. Speicherung: neue Liste `locks: Vec<(instance_id, param, value)>` je Note. Kompatibilität: `.flm` kennt das nicht -
+   Variante A (empfohlen): in einem eigenen Honeydew-Chunk speichern (unbekannte Chunks bleiben erhalten), Variante B:
+   unsichtbare Automation-Lane je Parameter mit Stufen. B ist file-kompatibel, aber unscharf bei überlappenden Noten.
+4. Wiedergabe: Der Sequencer setzt beim Notenbeginn den Parameter über die bestehende Parameter-Queue
+   (`audio_link`), bei Notenende zurück auf den Basiswert. Erst nur für Parameter, die live änderbar sind (Cutoff usw.).
+5. Schritte: (a) Datenmodell + Test, (b) Wiedergabe + Test, (c) UI-Liste mit "+", (d) Malen/Ziehen, (e) Undo über
+   `SongEdit::Final`. Jeder Schritt ein Commit; UI-Prototyp (c) zuerst mit dem Handy prüfen.
+Offene Frage an den Besitzer: Variante A oder B; nur Piano Roll oder auch Drum-Editor/Step-Sequencer.
+
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
 - Letzte APK (Commit `3587d86`): Menüs in der Spalte am rechten Rand (besonders LFO, dort am niedrigsten), Envelope-Anzeigen
