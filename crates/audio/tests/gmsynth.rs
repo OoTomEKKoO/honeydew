@@ -650,7 +650,8 @@ fn enable_off_ignores_note_ons_and_hidden_params_do_nothing() {
 #[test]
 fn a_missing_shape_silences_the_voice() {
     prepare_setting(WAVE_B, SAW as f32);
-    let mut missing = synth(RATE, &[], &[(WAVE_B, 29.0)]);
+    // Item 41 is the first past the menu (29 shapes and 12 built-in wavetables).
+    let mut missing = synth(RATE, &[], &[(WAVE_B, 41.0)]);
     missing.note_on(69, 1.0, 0.5);
     assert_eq!(peak(&render(&mut missing, 4800, RATE).0), 0.0);
     // Setting a built shape back makes it sound.
