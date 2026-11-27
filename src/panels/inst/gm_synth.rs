@@ -205,6 +205,8 @@ pub fn panel() -> Option<Panel> {
                                 knob(13000, "ATTACK").p(25),
                                 knob(14000, "DECAY").p(26),
                                 knob(15000, "AMOUNT").p(27),
+                                // Honeydew's own DRIVE: pushes the sound into the filter's soft clip.
+                                knob(16400, "DRIVE").default(0.0),
                             ],
                             1.7,
                         ),
@@ -994,7 +996,7 @@ pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
     // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
     // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1 and the LFO's MODE, LOW and HIGH (65100–65300).
-    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (65400, 0.0), (65500, 0.0), (66000, 0.0), (66001, 0.0), (66002, 0.5), (66010, 0.0), (66011, 0.0), (66012, 0.5), (66020, 0.0), (66021, 0.0), (66022, 0.5), (66030, 0.0), (66031, 0.0), (66032, 0.5), (81100, 0.0)],
+    settings: &[(16300, 0.0), (16400, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (65400, 0.0), (65500, 0.0), (66000, 0.0), (66001, 0.0), (66002, 0.5), (66010, 0.0), (66011, 0.0), (66012, 0.5), (66020, 0.0), (66021, 0.0), (66022, 0.5), (66030, 0.0), (66031, 0.0), (66032, 0.5), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -1002,11 +1004,12 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(12100, Widget::Display, "", [0.10, 1.35, 13.07, 3.45]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.90, 2.65, 2.59]).p(21).ink(Ink::Accent(Accent::Filter)),
-                row(12000, Widget::Knob, "RES", [2.65, 4.90, 2.65, 2.59]).p(22).ink(Ink::Accent(Accent::Filter)),
-                row(13000, Widget::Knob, "ATTACK", [5.30, 4.90, 2.66, 2.59]).p(25).ink(Ink::Accent(Accent::Filter)),
-                row(14000, Widget::Knob, "DECAY", [7.96, 4.90, 2.65, 2.59]).p(26).ink(Ink::Accent(Accent::Filter)),
-                row(15000, Widget::Knob, "AMOUNT", [10.61, 4.90, 2.66, 2.59]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.90, 2.21, 2.59]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [2.21, 4.90, 2.21, 2.59]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [4.42, 4.90, 2.21, 2.59]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [6.63, 4.90, 2.21, 2.59]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [8.84, 4.90, 2.22, 2.59]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16400, Widget::Knob, "DRIVE", [11.06, 4.90, 2.21, 2.59]).ink(Ink::Accent(Accent::Filter)),
                 row(16100, Widget::TextToggle, "KBD", [13.27, 1.31, 3.69, 1.96]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.39, 3.69, 1.96]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.47, 3.69, 1.96]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
@@ -1021,11 +1024,12 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(12100, Widget::Display, "", [0.10, 1.35, 13.07, 3.75]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 5.20, 2.65, 2.80]).p(21).ink(Ink::Accent(Accent::Filter)),
-                row(12000, Widget::Knob, "RES", [2.65, 5.20, 2.65, 2.80]).p(22).ink(Ink::Accent(Accent::Filter)),
-                row(13000, Widget::Knob, "ATTACK", [5.30, 5.20, 2.66, 2.80]).p(25).ink(Ink::Accent(Accent::Filter)),
-                row(14000, Widget::Knob, "DECAY", [7.96, 5.20, 2.65, 2.80]).p(26).ink(Ink::Accent(Accent::Filter)),
-                row(15000, Widget::Knob, "AMOUNT", [10.61, 5.20, 2.66, 2.80]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 5.20, 2.21, 2.80]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [2.21, 5.20, 2.21, 2.80]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [4.42, 5.20, 2.21, 2.80]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [6.63, 5.20, 2.21, 2.80]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [8.84, 5.20, 2.22, 2.80]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16400, Widget::Knob, "DRIVE", [11.06, 5.20, 2.21, 2.80]).ink(Ink::Accent(Accent::Filter)),
                 row(16100, Widget::TextToggle, "KBD", [13.27, 1.31, 3.69, 2.13]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),

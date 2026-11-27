@@ -2,7 +2,8 @@
 
 use std::f32::consts::TAU;
 
-use eframe::egui::{Align2, Pos2, Rect, Response, Ui, Vec2, vec2};
+use eframe::egui::epaint::PathShape;
+use eframe::egui::{Align2, Color32, Painter, Pos2, Rect, Response, Stroke, Ui, Vec2, vec2};
 
 use super::arc::{FOCUS_GROWTH, pulse};
 use super::curve::{curve_plot, env};
@@ -78,7 +79,54 @@ fn dial(ui: &Ui, cx: &UiCtx, c: &Control, response: &Response, v: f32) -> (Pos2,
     };
     painter.circle_filled(r.dot, grow * r.halo_r, module_fill);
     painter.circle_filled(r.dot, grow * r.dot_r, c.channel);
+    if let Some(m) = c.modulation {
+        let d = diameter(body) * swell;
+        paint_modulation(painter, center, d, v, m.amount, m.color, cx.m.t());
+    }
     (center, r)
+}
+
+/// How far the modulation arc's end dot reaches past the arc's own width.
+const MOD_DOT: f32 = 1.4;
+
+/// The modulation arc: a ring band just outside the knob's own ring, in the source's colour, from the knob's value `v`
+/// to `v + amount` (clamped to the knob's travel), with a dot at the far end. Its sweep is [`mod_arc`]'s points.
+fn paint_modulation(
+    painter: &Painter,
+    center: Pos2,
+    d: f32,
+    v: f32,
+    amount: f32,
+    color: Color32,
+    t: f32,
+) {
+    let width = (0.035 * d).max(t * 0.6);
+    let radius = 0.5 * d - width / 2.0;
+    let points = mod_arc(center, radius, v, amount);
+    if points.len() >= 2 {
+        painter.add(PathShape::line(points.clone(), Stroke::new(width, color)));
+    }
+    if let Some(&end) = points.last() {
+        painter.circle_filled(end, MOD_DOT * width / 2.0, color);
+    }
+}
+
+/// The polyline of the modulation arc, one point per 4 degrees at most, from `v` to the clamped `v + amount` along
+/// the knob's clockwise travel; empty when the amount is 0 or not a number.
+fn mod_arc(center: Pos2, radius: f32, v: f32, amount: f32) -> Vec<Pos2> {
+    if !amount.is_finite() || amount == 0.0 {
+        return Vec::new();
+    }
+    let (from, to) = (v.clamp(0.0, 1.0), (v + amount).clamp(0.0, 1.0));
+    let sweep = (to - from).abs() * 0.9 * 360.0;
+    let steps = ((sweep / 4.0).ceil() as usize).max(1);
+    (0..=steps)
+        .map(|i| {
+            let at = from + (to - from) * i as f32 / steps as f32;
+            let (sin, cos) = dot_angle(at).sin_cos();
+            center + radius * vec2(-sin, cos)
+        })
+        .collect()
 }
 
 /// The ring's diameter at rest in `body`.
@@ -217,6 +265,31 @@ mod tests {
         // s′ is capped by 2 t on a large knob: D = 400 gives min(20, 12) = 12.
         let r = ring(C, 400.0, 1.0, false, t);
         assert!(near(r.outer, 192.0 - 12.0) && near(r.dot_r, 18.0), "{r:?}");
+    }
+
+    #[test]
+    fn the_modulation_arc_runs_from_the_value_by_the_amount_and_stays_on_the_travel() {
+        let on_ring = |p: &[Pos2]| p.iter().all(|q| near((*q - C).length(), 50.0));
+        let up = mod_arc(C, 50.0, 0.3, 0.4);
+        assert!(on_ring(&up));
+        // Its two ends sit where the knob's dot would sit at 0.3 and at 0.7.
+        let at = |v: f32| {
+            let (sin, cos) = dot_angle(v).sin_cos();
+            C + 50.0 * vec2(-sin, cos)
+        };
+        assert!(
+            (up[0] - at(0.3)).length() < 1e-3 && (*up.last().unwrap() - at(0.7)).length() < 1e-3
+        );
+        // A negative amount runs the other way, and the travel clamps it.
+        let down = mod_arc(C, 50.0, 0.3, -0.9);
+        assert!((*down.last().unwrap() - at(0.0)).length() < 1e-3);
+        assert!(
+            mod_arc(C, 50.0, 0.5, 0.0).is_empty() && mod_arc(C, 50.0, 0.5, f32::NAN).is_empty()
+        );
+        // The longer the sweep, the more points; never more than one per 4 degrees plus one.
+        assert!(
+            mod_arc(C, 50.0, 0.0, 1.0).len() <= 82 && mod_arc(C, 50.0, 0.0, 1.0).len() > up.len()
+        );
     }
 
     #[test]

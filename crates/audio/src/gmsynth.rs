@@ -73,6 +73,11 @@ pub const MW_DEST: u32 = 36200;
 /// Honeydew's extra filter types (not in FL Studio Mobile): item 0 `Off` keeps the FILTER `KIND` param (v23), items
 /// 1–3 `BP`, `Notch` and `Comb` replace it. Kept in the `CSTM` blob after the original 20 bytes.
 pub const FILTER_EXTRA: u32 = 16300;
+/// Honeydew's filter DRIVE (0…1, off at 0): the voice is pushed into the filter's own soft clip ([`CLIP`]) before it, as
+/// Serum's Drive does, for grit and body without a louder output. Kept in the `CSTM` blob after the modulation routes.
+pub const FILTER_DRIVE: u32 = 16400;
+/// The input gain at full DRIVE (1 at none), and how much of it the output gives back (its square root's inverse).
+const DRIVE_GAIN: f32 = 8.0;
 /// Honeydew's FM depth range (not in FL Studio Mobile): item 0 `x1` is the original depth, the others multiply the
 /// phase offset FM adds (A is read at φ_A + (B + 1)·m·scale cycles), so a low amount already modulates hard. Kept in
 /// the `CSTM` blob after [`FILTER_EXTRA`].
@@ -420,6 +425,8 @@ struct Control {
     filter_kind: u8,
     /// [`FILTER_EXTRA`]: 0 uses `filter_kind`.
     filter_extra: u8,
+    /// `CSTM` DRIVE, 0…1 ([`FILTER_DRIVE`]).
+    drive: f32,
     /// The FM phase offset's scale ([`FM_SCALES`]).
     fm_scale: f32,
     sample_rate: f32,
@@ -594,6 +601,15 @@ impl Voice {
                 .clamp(0.0, 1.0);
             self.last_cutoff = cutoff;
             let (a, b) = filter.at(cutoff);
+            // DRIVE: the voice is pushed into the filter's soft clip, and the output gives back half of that gain in
+            // dB terms (the square root), so the sound gets fuller and grittier rather than just louder. Off (0)
+            // leaves the signal bit for bit as it was.
+            let (left, right, give_back) = if c.drive > 0.0 {
+                let gain = 1.0 + (DRIVE_GAIN - 1.0) * c.drive;
+                (left * gain, right * gain, gain.sqrt().recip())
+            } else {
+                (left, right, 1.0)
+            };
             let (out_l, out_r) = if c.filter_extra == EXTRA_COMB {
                 // Comb: the delay follows the cutoff's frequency, the resonance sets the feedback.
                 let hz = CUTOFF_HZ * (CUTOFF_OCTAVES * cutoff).exp2();
@@ -615,6 +631,7 @@ impl Voice {
                     ladder(&mut self.stages[1], right + noise, a, feedback, kind),
                 )
             };
+            let (out_l, out_r) = (out_l * give_back, out_r * give_back);
             // voice = filter out × amp env × gain × pan; gain = clamp(velocity + slide velocity, 0, 1).
             self.gain += SMOOTHING * (velocity - self.gain);
             let gain = amp * self.gain;
@@ -747,6 +764,7 @@ pub struct GmSynth {
     pb_range: f32,
     /// `CSTM`: the extra filter type ([`FILTER_EXTRA`]).
     filter_extra: u8,
+    filter_drive: f32,
     /// `CSTM`: the FM range item ([`FM_RANGE`]).
     fm_range: usize,
     /// `CSTM`: the LFO's mode and the random range ([`LFO_MODE`]), the value held now and the phase last seen.
@@ -808,6 +826,7 @@ impl GmSynth {
             wheel: 0.0,
             pb_range: PB_RANGES[1],
             filter_extra: 0,
+            filter_drive: 0.0,
             fm_range: 0,
             lfo_mode: 0,
             lfo_low: 0.0,
@@ -1014,6 +1033,7 @@ impl GmSynth {
         c.resonance = v[22];
         c.filter_kind = ((2.0 * v[23]) as u8).min(2);
         c.filter_extra = self.filter_extra;
+        c.drive = self.filter_drive;
         c.fm_scale = FM_SCALES[self.fm_range];
         c.sample_rate = sr;
 
@@ -1672,6 +1692,13 @@ impl Instrument for GmSynth {
                 }
             }
             FM_RANGE => self.fm_range = (value as usize).min(FM_SCALES.len() - 1),
+            FILTER_DRIVE => {
+                self.filter_drive = if value.is_finite() {
+                    value.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            }
             FILTER_EXTRA => self.filter_extra = (value as usize).min(usize::from(EXTRA_COMB)) as u8,
             _ => {}
         }
@@ -2272,6 +2299,35 @@ mod tests {
         let (mut left, mut right) = (vec![0.0; 256], vec![0.0; 256]);
         synth.process(&mut left, &mut right, STOPPED);
         assert!(left.iter().all(|x| x.is_finite()));
+    }
+
+    /// The loudest and the quietest of a held saw's output after a note starts, with the filter DRIVE at `drive`.
+    fn drive_run(drive: f32) -> (Vec<f32>, f32) {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(21, 0.6); // CUTOFF
+        synth.set_parameter(22, 0.4); // RESONANCE
+        synth.set_setting(FILTER_DRIVE, drive);
+        synth.note_on(48, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 4000], vec![0.0; 4000]);
+        synth.process(&mut left, &mut right, STOPPED);
+        let peak = left.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        (left, peak)
+    }
+
+    #[test]
+    fn drive_zero_changes_nothing_and_more_drive_changes_the_sound_without_blowing_up() {
+        let (plain, _) = drive_run(0.0);
+        let (off, _) = drive_run(f32::NAN);
+        assert_eq!(plain, off, "a broken value is the same as none");
+        let (driven, peak) = drive_run(1.0);
+        assert!(driven.iter().all(|x| x.is_finite()));
+        assert_ne!(plain, driven);
+        let (_, plain_peak) = drive_run(0.0);
+        // Fuller, not much louder: the output gives back part of the gain.
+        assert!(
+            peak < 3.0 * plain_peak.max(1e-3),
+            "{peak} against {plain_peak}"
+        );
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.

@@ -96,27 +96,30 @@ fn the_menu_is_reset_then_the_parameter_items_with_unlink_only_for_a_linked_para
     };
     // `Unlink from MIDI CC` is dimmed unless the parameter has a CC link; the rest are always on.
     assert_eq!(
-        rows(&menu_items(true, ParamMenu::Bound, false)),
+        rows(&menu_items(true, ParamMenu::Bound, false, false)),
         want(false)
     );
     assert_eq!(
-        rows(&menu_items(true, ParamMenu::Linked, false)),
+        rows(&menu_items(true, ParamMenu::Linked, false, false)),
         want(true)
     );
     // Unbound knobs and sliders: Reset only. Unbound toggles and buttons: nothing.
     assert_eq!(
-        rows(&menu_items(true, ParamMenu::Unbound, false)),
+        rows(&menu_items(true, ParamMenu::Unbound, false, false)),
         want(false)[..1]
     );
-    assert!(menu_items(false, ParamMenu::Unbound, false).is_empty());
+    assert!(menu_items(false, ParamMenu::Unbound, false, false).is_empty());
     // Toggles: no Reset.
     let want: Vec<_> = want(false)[1..]
         .iter()
         .map(|(a, l, row, d)| (*a, l.clone(), row - 1, *d))
         .collect();
-    assert_eq!(rows(&menu_items(false, ParamMenu::Bound, false)), want);
+    assert_eq!(
+        rows(&menu_items(false, ParamMenu::Bound, false, false)),
+        want
+    );
     assert!(
-        menu_items(true, ParamMenu::Bound, false)
+        menu_items(true, ParamMenu::Bound, false, false)
             .iter()
             .all(|i| i.col == 0 && !i.is_header())
     );
@@ -133,8 +136,8 @@ fn fine_tune_control_ends_a_bound_menu_only_when_the_dialog_supports_it() {
     };
     // A fifth row after `Add automation track`, enabled, present only for a supported control.
     for menu in [ParamMenu::Bound, ParamMenu::Linked] {
-        let with = menu_items(true, menu, true);
-        let without = menu_items(true, menu, false);
+        let with = menu_items(true, menu, true, false);
+        let without = menu_items(true, menu, false, false);
         assert_eq!(with.len(), without.len() + 1, "{menu:?}");
         assert_eq!(labels(&with[..without.len()]), labels(&without));
         let last = &labels(&with)[without.len()];
@@ -148,10 +151,10 @@ fn fine_tune_control_ends_a_bound_menu_only_when_the_dialog_supports_it() {
     }
     // Never on an unbound control.
     assert_eq!(
-        labels(&menu_items(true, ParamMenu::Unbound, true)),
-        labels(&menu_items(true, ParamMenu::Unbound, false))
+        labels(&menu_items(true, ParamMenu::Unbound, true, false)),
+        labels(&menu_items(true, ParamMenu::Unbound, false, false))
     );
-    assert!(menu_items(false, ParamMenu::Unbound, true).is_empty());
+    assert!(menu_items(false, ParamMenu::Unbound, true, false).is_empty());
 }
 
 #[test]
@@ -170,6 +173,7 @@ fn a_supported_knobs_fine_tune_control_is_signalled_as_its_pick() {
     let want = Signal {
         pressed: false,
         pick: Some(CtrlAction::FineTune),
+        modulate: false,
     };
     assert_eq!(rig.signal, want);
     assert_eq!(rig.value, 0.25, "the value stays");
@@ -310,6 +314,7 @@ fn a_bound_controls_press_is_signalled_in_its_frame_only() {
         let pressed = Signal {
             pressed: true,
             pick: None,
+            modulate: false,
         };
         assert_eq!(rig.signal, pressed, "{kind:?}");
         // Held, then released: no more presses.
@@ -340,6 +345,7 @@ fn add_automation_track_is_signalled_and_closes_the_menu() {
         let add = Signal {
             pressed: false,
             pick: Some(CtrlAction::AddAutomationTrack),
+            modulate: false,
         };
         assert_eq!(rig.signal, add, "{kind:?}");
         assert_eq!(rig.value, 0.25, "{kind:?}: the value stays");
@@ -371,6 +377,7 @@ fn each_link_item_is_signalled_as_its_pick_and_unlink_only_when_linked() {
         let want = Signal {
             pressed: false,
             pick: Some(pick),
+            modulate: false,
         };
         assert_eq!(rig.signal, want, "{pick:?}");
         assert_eq!(rig.value, 0.25, "{pick:?}: the value stays");

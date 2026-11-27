@@ -65,6 +65,7 @@ macro_rules! modules {
 pub mod build;
 pub(crate) mod cstm;
 mod fx;
+mod modulation;
 pub(crate) use fx::couple_param;
 pub(crate) use fx::couple_scale;
 pub(crate) use fx::live_analysis_fast;
@@ -547,6 +548,9 @@ pub struct PanelState {
     /// Text the card wiring gives controls by `#n`, in place of the panel's: a text control's label (the SoundFont's
     /// load error), a [`Leaf::picker`] spinner's value (the SoundFont's patch name).
     pub texts: HashMap<u32, String>,
+    /// The GM Synth's modulation inspector: the param whose knob asked for it and where (`Modulate…` in the knob's
+    /// menu), until it is closed.
+    pub inspect: Option<(usize, eframe::egui::Pos2)>,
 }
 
 impl PanelState {
@@ -801,6 +805,15 @@ pub fn show(
             },
             fine_tune: bound && pspec.is_some_and(fine_tune::module_param),
             compact: leaf.compact,
+            modulate: leaf.widget == Widget::Knob
+                && module.type_id == modulation::GMSYNTH_TYPE
+                && leaf
+                    .param
+                    .is_some_and(|p| modulation::target_of(p).is_some()),
+            modulation: leaf
+                .param
+                .filter(|_| module.type_id == modulation::GMSYNTH_TYPE)
+                .and_then(|p| modulation::modulation_of(state, &cx.theme.colors, p)),
             ..Control::new(id, rect, &label, ink, reset)
         };
         let text = |v: f32| match (leaf.value_fn, pspec) {
@@ -976,6 +989,13 @@ pub fn show(
             if let Some(pick) = signal.pick {
                 edits.pick = Some((p, pick));
             }
+            if signal.modulate {
+                let at = ui
+                    .ctx()
+                    .input(|i| i.pointer.latest_pos())
+                    .unwrap_or(rect.center());
+                state.inspect = Some((p, at));
+            }
         }
         if edit {
             edited.push(leaf.id);
@@ -990,6 +1010,15 @@ pub fn show(
     }
     if let Some(overlay) = panel.overlay {
         overlay(ui, cx, module, state, &drawn, content, channel);
+    }
+    // The modulation inspector floats above the card; its edits are settings, like the MATRIX page's.
+    if module.type_id == modulation::GMSYNTH_TYPE {
+        for key in modulation::inspector(ui, cx, state, base) {
+            if !edits.settings.contains(&key) {
+                edits.settings.push(key);
+            }
+            edited.push(key);
+        }
     }
     let mut hooked = false;
     if let Some(hook) = panel.hook {

@@ -239,6 +239,7 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("MOD4 SOURCE", 84, 66030, Index(3), 0.0),
     f("MOD4 TARGET", 88, 66031, Index(17), 0.0),
     f("MOD4 AMOUNT", 92, 66032, Norm, 0.5),
+    f("FILTER DRIVE", 96, 16400, Norm, 0.0),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -876,6 +877,8 @@ mod tests {
                     (66030, 0.0),
                     (66031, 0.0),
                     (66032, 0.5),
+                    (16400, 0.0),
+                    (16400, 0.0),
                 ]),
             ),
             (
@@ -1082,6 +1085,7 @@ mod tests {
                 (66030, 0.0),
                 (66031, 0.0),
                 (66032, 0.5),
+                (16400, 0.0),
             ]);
             m.extend(extra.iter().copied());
             Some(m)

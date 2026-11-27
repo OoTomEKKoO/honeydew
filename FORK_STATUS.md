@@ -103,8 +103,12 @@ zu weit verloren gehen.
   kaum CPU). Der EG liefert den Wert der neuesten klingenden Stimme. Die alten Einzelziele (`LFO Dest`, `EG Dest`) bleiben.
 - Datei: 12 neue CSTM-Felder ab Byte 48 (`MOD_BASE` 66000), nur geschrieben, wenn benutzt (alte Songs unverändert).
 - Oberfläche: neue Seite MATRIX (nach LFO) mit 4 Zeilen FROM / TO / AMOUNT. Prototyp.
-- Noch offen: Modulationsring am Regler, Inspektor per Langdruck (bisher öffnet der Langdruck nur Reset/Fine tune),
-  Hüllkurven-Quelle pro Stimme, mehr Quellen, mehr Ziele, Drive/Filter-Charakter.
+- Schritt 2 (gebaut, Tests grün): Modulationsring am Regler (Bogen in LFO-/EG-Farbe vom Reglerwert um den Betrag,
+  `widgets/knob.rs`), Inspektor per Langdruck → "Modulate…" (`src/panels/modulation.rs`: Quelle Off/LFO/EG, Betrag
+  bipolar, Fertig), und DRIVE-Regler auf der FILTER-Seite (CSTM `FILTER DRIVE`, Byte 96, Einstellung 16400; Verstärkung
+  vor dem Filter, Ausgang gibt die Wurzel zurück). Der Ring zeigt die Reichweite, bewegt sich noch nicht live mit der
+  Modulation (Live-Punkt wäre der nächste Schritt).
+- Noch offen: Live-Punkt am Ring, EG-Quelle pro Stimme, mehr Quellen/Ziele, Charakter-Modi des Filters, P-Locks.
 
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 

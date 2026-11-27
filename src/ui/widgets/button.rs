@@ -167,7 +167,7 @@ pub fn button(ui: &mut Ui, cx: &UiCtx, b: &Button, on: bool) -> Response {
     };
     let mut response = focus::interact(ui, b.rect, b.id, sense);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, !b.disabled, b.text));
-    context_menu(ui, cx, b.id, b.menu, false, false, &mut response);
+    context_menu(ui, cx, b.id, b.menu, false, (false, false), &mut response);
 
     let painter = ui.painter();
     // Pressed, every colour is drawn brighter. Hovered on desktop, the fill alone, and never twice.

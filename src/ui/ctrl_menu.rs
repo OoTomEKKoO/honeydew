@@ -349,7 +349,11 @@ mod tests {
             instance_id: 2,
             param: 1,
         };
-        let signal = |pressed, pick| Signal { pressed, pick };
+        let signal = |pressed, pick| Signal {
+            pressed,
+            pick,
+            modulate: false,
+        };
         assert_eq!(Touch::new(target, signal(false, None)), None);
         let touch = |pick| Some(Touch { target, pick });
         assert_eq!(Touch::new(target, signal(true, None)), touch(None));

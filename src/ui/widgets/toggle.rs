@@ -66,7 +66,7 @@ pub(super) fn flip(ui: &mut Ui, cx: &UiCtx, c: &Control, value: &mut f32) -> (Re
     };
     let mut response = focus::interact(ui, c.rect, c.id, sense);
     // The menu first: the release after its long press is no click.
-    context_menu(ui, cx, c.id, c.menu, false, false, &mut response);
+    context_menu(ui, cx, c.id, c.menu, false, (false, false), &mut response);
     if response.clicked() {
         *value = if toggle_on(clean(*value, c.default)) {
             0.0

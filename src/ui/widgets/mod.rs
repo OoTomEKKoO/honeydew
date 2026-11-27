@@ -91,6 +91,14 @@ const DOUBLE_TAP_S: f64 = 0.3;
 /// An `increment` / `decrement` key press's step; [`FINE`] times it for the fine ones.
 const KEY_STEP: f32 = 0.05;
 
+/// A modulation route on a knob (Honeydew change): the knob draws a ring arc in the source's colour from its value by
+/// `amount` (−1…1 of the knob's travel), so the ring shows how far the source can push it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Modulation {
+    pub amount: f32,
+    pub color: Color32,
+}
+
 /// What a knob, slider, toggle or spinner needs besides its value and value text. Build it with [`Control::new`] and
 /// change the other fields with struct update syntax.
 #[derive(Clone, Copy, Debug)]
@@ -139,6 +147,10 @@ pub struct Control<'a> {
     /// Spinners: a compact menu, a rounded box with the label over the value, whose whole face opens the popup (no
     /// chevrons to step): half the height of the spinner, for narrow cards.
     pub compact: bool,
+    /// Knobs: a modulation route to show as a ring arc ([`Modulation`]).
+    pub modulation: Option<Modulation>,
+    /// Knobs: the parameter menu offers `Modulate…`, which the panel answers with its inspector ([`Signal::modulate`]).
+    pub modulate: bool,
 }
 
 /// The parameter menu of a knob, slider, toggle or button: knobs and sliders start it with `Reset`, and a control
@@ -183,6 +195,8 @@ impl<'a> Control<'a> {
             fine_tune: false,
             ring_text: true,
             compact: false,
+            modulation: None,
+            modulate: false,
         }
     }
 
@@ -405,7 +419,15 @@ fn drag_control(
         edited = true;
     }
     // The menu first: it must be drawn every frame it is open, whatever else happened.
-    let action = context_menu(ui, cx, c.id, c.menu, true, c.fine_tune, &mut response);
+    let action = context_menu(
+        ui,
+        cx,
+        c.id,
+        c.menu,
+        true,
+        (c.fine_tune, c.modulate),
+        &mut response,
+    );
     if action == Some(MenuAction::Reset) || double_tap(ui, c.id, &response) {
         v = c.default;
         edited = true;
@@ -526,6 +548,8 @@ pub struct Signal {
     pub pressed: bool,
     /// The CTRL item picked from its parameter menu (`Link to MIDI CC` … `Add automation track`).
     pub pick: Option<CtrlAction>,
+    /// `Modulate…` was picked from its parameter menu.
+    pub modulate: bool,
 }
 
 /// Control `id`'s [`Signal`] of this frame, taken: call it right after drawing the control. Unbound and disabled
@@ -545,9 +569,10 @@ fn context_menu(
     id: Id,
     menu: ParamMenu,
     reset: bool,
-    fine_tune: bool,
+    extras: (bool, bool),
     response: &mut Response,
 ) -> Option<MenuAction> {
+    let (fine_tune, modulate) = extras;
     let links = matches!(menu, ParamMenu::Bound | ParamMenu::Linked);
     let reset = reset && menu != ParamMenu::Off;
     if !reset && !links {
@@ -566,7 +591,7 @@ fn context_menu(
     }
     let at = popup_anchor(ui, menu_id)?;
     // Built only while the menu is open, not every frame of every control.
-    let items = menu_items(reset, menu, fine_tune);
+    let items = menu_items(reset, menu, fine_tune, modulate);
     let ctx = ui.ctx();
     let result = popup::show(ctx, menu_id, at, ctx.content_rect(), &items, cx);
     if result.close {
@@ -574,6 +599,9 @@ fn context_menu(
     }
     if let Some(MenuAction::Pick(action)) = result.selected {
         post(ui, id, |s| s.pick = Some(action));
+    }
+    if result.selected == Some(MenuAction::Modulate) {
+        post(ui, id, |s| s.modulate = true);
     }
     result.selected
 }
@@ -621,13 +649,19 @@ fn close_popup(ui: &Ui, id: Id) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MenuAction {
     Reset,
+    Modulate,
     Pick(CtrlAction),
 }
 
 /// The parameter menu (with `Reset` first when `reset`), one column; the CTRL items only when `menu` is bound, with
 /// `Unlink from MIDI CC` dimmed unless it is [`ParamMenu::Linked`], and `Fine tune control` (row 5) present only when
 /// `fine_tune`.
-fn menu_items(reset: bool, menu: ParamMenu, fine_tune: bool) -> Vec<PopupItem<MenuAction>> {
+fn menu_items(
+    reset: bool,
+    menu: ParamMenu,
+    fine_tune: bool,
+    modulate: bool,
+) -> Vec<PopupItem<MenuAction>> {
     let bound = matches!(menu, ParamMenu::Bound | ParamMenu::Linked);
     let reset = reset.then(|| PopupItem::new(MenuAction::Reset, 0, 0, "Reset"));
     // Rows 1…4 are the CTRL menu's first four, row 5 its last.
@@ -638,8 +672,10 @@ fn menu_items(reset: bool, menu: ParamMenu, fine_tune: bool) -> Vec<PopupItem<Me
             disabled: action == CtrlAction::UnlinkMidiCc && menu != ParamMenu::Linked,
             ..PopupItem::new(MenuAction::Pick(action), 0, 0, label)
         });
+    let modulate = modulate.then(|| PopupItem::new(MenuAction::Modulate, 0, 0, "Modulate…"));
     reset
         .into_iter()
+        .chain(modulate)
         .chain(links)
         .enumerate()
         .map(|(row, item)| PopupItem { row, ..item })
