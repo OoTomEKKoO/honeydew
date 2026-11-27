@@ -209,6 +209,29 @@ Erkenntnisse nach Code-Lesen (Tag 3), Entscheidung für den Bau:
 
 Offene Frage an den Besitzer (mit obiger Empfehlung A beantwortet, falls er nichts anderes sagt): nur Piano Roll oder auch Drum-Editor/Step-Sequencer.
 
+## 4c. Plan: Wavetable-Oszillatoren (vorgezogen, Entscheidungen des Besitzers von Tag 3)
+
+Entscheidungen: eine gemeinsame Auswahlliste (29 Shapes + Wavetables) pro Oszillator; die Position als echte Parameter
+(Pos A, Pos B: Automation, Mod-Matrix, LFO/EG, P-Locks gehen darauf); erster Build mit WAV-Import; alles Bestehende (FM,
+Ring, Sync, Choir, Filter) bleibt.
+
+Ausgangslage: Ein Shape ist heute ein `Wavetable` aus 512 Tabellen (je Oberwellenzahl) zu 1024 Punkten, gelesen ohne
+Interpolation mit Dither (`gm_waveshapes.rs`). Das bleibt für die 29 Shapes bit-genau erhalten.
+
+Technik (neu, `crates/audio/src/wavetable.rs`):
+- `FrameTable`: N Frames (bis 256) zu je 2048 Punkten, je Frame per FFT in Oberwellen zerlegt und in ~10 Oktav-Stufen
+  bandbegrenzt gespeichert (kein Aliasing, wenige MB). Lesen: linear zwischen Punkten, Position blendet zwischen zwei
+  Frames (flüssig, ohne Sprünge).
+- Quelle pro Oszillator: `Shape(slot)` oder `Table(index)`; FM/Ring/Sync lesen über dieselbe Lese-Funktion.
+- Werks-Tabellen (rechnerisch erzeugt, eigene Entwürfe): Morphs (Sinus-Saw-Square), PWM, Formant/Vokale, FM-Sweep,
+  Harmonik-Sweep, Digital u. a.
+- WAV-Import: Datei in Frames zu 2048 Punkten teilen (Serum-Konvention), auf Pegel normieren; Pfad/Daten wie bei der
+  3x-Osc-Custom-Welle.
+- UI: 3D-Vorschau (Frames als hintereinander gestaffelte Linien in Schrägansicht, aktuelle Position hervorgehoben, Ziehen
+  setzt die Position), Position als Regler, Auswahlliste mit Tabellen unter den Shapes.
+- Schritte (je ein Commit): (1) FrameTable + Lesen + Tests, (2) Werks-Tabellen, (3) Einbau in GMSynth (Quelle + Pos-Parameter,
+  Datei/CSTM), (4) UI mit 3D-Vorschau, (5) WAV-Import, (6) Matrix-Ziele Pos A/B.
+
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
 - Letzte APK (Commit `3587d86`): Menüs in der Spalte am rechten Rand (besonders LFO, dort am niedrigsten), Envelope-Anzeigen
