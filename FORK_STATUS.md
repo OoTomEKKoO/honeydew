@@ -163,7 +163,19 @@ Idee: Ein P-Lock ist ein Wert für einen Modul-Parameter, der nur für eine Note
    (`audio_link`), bei Notenende zurück auf den Basiswert. Erst nur für Parameter, die live änderbar sind (Cutoff usw.).
 5. Schritte: (a) Datenmodell + Test, (b) Wiedergabe + Test, (c) UI-Liste mit "+", (d) Malen/Ziehen, (e) Undo über
    `SongEdit::Final`. Jeder Schritt ein Commit; UI-Prototyp (c) zuerst mit dem Handy prüfen.
-Offene Frage an den Besitzer: Variante A oder B; nur Piano Roll oder auch Drum-Editor/Step-Sequencer.
+Erkenntnisse nach Code-Lesen (Tag 3), Entscheidung für den Bau:
+- Automations-Lanes (Variante B) liegen als eigene Lanes mit eigenen Clips im Song; Noten und Lock-Werte würden beim
+  Verschieben/Kopieren/Loopen von Noten auseinanderlaufen. Das wäre eine Fehlerquelle über die Zeit.
+- Besser (Variante A, empfohlen): Locks hängen **an der Note im selben Clip**: `Clip.locks: Vec<Lock>` mit
+  `Lock { note_pos, key, target: AutomationTarget, value }`; beim Verschieben/Löschen/Kopieren von Noten werden die Locks
+  mitgeführt (ein einziger Ort: die Noten-Bearbeitungsfunktionen). Datei: eigener Honeydew-Chunk im CLIP (ungewohnte
+  Chunks bleiben erhalten). Wiedergabe: beim Notenstart setzt der Sequencer den Parameter über denselben Weg wie
+  Automation (`set_parameter` im Engine, `src/audio_engine/mod.rs`), nach Notenende zurück auf den Basiswert (oder wie bei
+  Drambo bis zum nächsten Trigger halten, als Option).
+- Reihenfolge: (1) Datenmodell + Test, (2) Datei-Chunk lesen/schreiben + Test, (3) Wiedergabe + Test, (4) Grafikstreifen-UI
+  mit "+" und Malen. Jeder Schritt ein Commit; erst Schritt 4 braucht dein Feedback am Handy.
+
+Offene Frage an den Besitzer (mit obiger Empfehlung A beantwortet, falls er nichts anderes sagt): nur Piano Roll oder auch Drum-Editor/Step-Sequencer.
 
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
