@@ -784,6 +784,46 @@ fn a_later_finger_picks_a_tab_while_the_first_holds_something_else() {
     assert_eq!(index.get(), 2);
 }
 
+/// A second finger's double tap resets a knob while the first finger holds something else (a key): the default comes
+/// back at the second touch-down, as the pointer's double tap does.
+#[test]
+fn a_later_fingers_double_tap_resets_a_knob_while_the_first_holds_a_key() {
+    use egui::{TouchDeviceId, TouchId, TouchPhase};
+    let value = Cell::new(0.8_f32);
+    let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(4.0 * U, 4.0 * U));
+    let mut bench = Bench::new(|ui, cx| {
+        let c = Control::new(Id::new("knob"), rect, "", Color32::RED, 0.5);
+        let mut v = value.get();
+        let response = crate::ui::widgets::knob(ui, cx, &c, &mut v, |v| format!("{v:.2}"));
+        value.set(v);
+        response
+    });
+    let touch = |id, phase, pos| Event::Touch {
+        device_id: TouchDeviceId(0),
+        id: TouchId(id),
+        phase,
+        pos,
+        force: None,
+    };
+    let key = pos2(400.0, 400.0);
+    bench.frame(vec![
+        touch(1, TouchPhase::Start, key),
+        Event::PointerMoved(key),
+        Event::PointerButton {
+            pos: key,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        },
+    ]);
+    let on_knob = rect.center();
+    bench.frame(vec![touch(2, TouchPhase::Start, on_knob)]);
+    assert_eq!(value.get(), 0.8, "one tap changes nothing");
+    bench.frame(vec![touch(2, TouchPhase::End, on_knob)]);
+    bench.frame(vec![touch(2, TouchPhase::Start, on_knob)]);
+    assert_eq!(value.get(), 0.5, "the second tap resets to the default");
+}
+
 #[test]
 fn a_boxed_list_boxes_the_selected_cell_in_menu_fill_inset_2t_and_draws_no_bars() {
     let index = Cell::new(1usize);

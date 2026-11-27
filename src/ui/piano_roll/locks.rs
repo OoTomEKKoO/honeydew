@@ -50,6 +50,15 @@ pub fn base_value(channel: &Channel, target: AutomationTarget) -> Option<f32> {
         .copied()
 }
 
+/// Whether `target` rests in the middle (a knob whose default is 0.5: Pan, a pitch): its lock bars grow from the centre
+/// band as the drum editor's Pan and Pitch do.
+pub fn is_bipolar(channel: &Channel, target: AutomationTarget) -> bool {
+    let module = (channel.rack.modules.iter()).find(|m| m.instance_id == target.instance_id);
+    let spec = module.and_then(|m| module_spec(m.type_id));
+    let param = spec.and_then(|s| s.params.get(usize::try_from(target.param).ok()?));
+    param.is_some_and(|p| p.default == 0.5)
+}
+
 /// Locks `target` to `value` (0…1) on every eligible note whose extent [pos, pos + len) holds `tick`: all the notes, or
 /// only the selected ones while any is selected (`selected` is parallel to the clip's events, as the other graph lane
 /// items'). Returns whether a lock changed.
@@ -170,5 +179,15 @@ mod tests {
             "menus jump, so they are not offered"
         );
         assert!(base_value(channel, lockable(channel)[0].0).is_some());
+        // Pan rests in the middle, Cutoff does not.
+        let find = |name: &str| {
+            lockable(channel)
+                .into_iter()
+                .find(|(_, n)| n == name)
+                .unwrap()
+                .0
+        };
+        assert!(is_bipolar(channel, find("Pan")));
+        assert!(!is_bipolar(channel, find("Cutoff")));
     }
 }

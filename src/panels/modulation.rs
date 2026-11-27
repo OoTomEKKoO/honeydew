@@ -5,16 +5,19 @@
 //! target and amount) so they are saved in the module's `CSTM` blob and reach the engine like any other setting. This
 //! module only reads and writes those settings; the engine applies them.
 
-use eframe::egui::{self, Align2, Area, Frame, Id, Order, Pos2, Ui, vec2};
+use eframe::egui::{
+    Align, Align2, Area, Id, Key, Margin, Order, Rect, Sense, TextEdit, Ui, pos2, vec2,
+};
 use honeydew_audio::gmsynth::{
     MOD_AMOUNT, MOD_BASE, MOD_SLOTS, MOD_SOURCE, MOD_SOURCES, MOD_TARGET, MOD_TARGET_NAMES,
     MOD_TARGETS,
 };
 
 use super::PanelState;
+use crate::metrics::FontSize;
 use crate::theme::{Accent, ThemeColors};
-use crate::ui::UiCtx;
-use crate::ui::widgets::Modulation;
+use crate::ui::widgets::{self, Control, Modulation, ParamMenu};
+use crate::ui::{UiCtx, close_pressed, dialog};
 
 /// The module type this applies to: the GM Synth.
 pub(super) const GMSYNTH_TYPE: u16 = 2;
@@ -41,9 +44,9 @@ fn setting(state: &PanelState, slot: usize, field: u32, default: f32) -> f32 {
     v.filter(|v| v.is_finite()).unwrap_or(default)
 }
 
-/// The index into the engine's target list of param `param`, if a route may drive it.
+/// The target menu item of param `param` (1 for the first target; 0 is `Off`), if a route may drive it.
 pub(super) fn target_of(param: usize) -> Option<usize> {
-    MOD_TARGETS.iter().position(|&p| p == param)
+    MOD_TARGETS.iter().position(|&p| p == param).map(|i| i + 1)
 }
 
 /// The first live route (a source, a target and an amount away from 0) that drives `param`.
@@ -136,80 +139,208 @@ pub(super) fn set_amount(state: &mut PanelState, slot: usize, amount: f32) -> Ve
     put(state, slot, MOD_AMOUNT, v).into_iter().collect()
 }
 
-/// The inspector for `param`'s knob, shown at `at` while `state.inspect` names it: the source (Off, LFO, EG), the bipolar
-/// amount and a close button. Returns the route settings the user changed this frame.
+/// The inspector's box in U: wide enough for three source buttons, nine high.
+const BOX: [f32; 2] = [17.0, 10.4];
+const TITLE: FontSize = FontSize::Pt18;
+
+/// The amount as the typed text reads it: a number of percent, `+`, `%` and spaces allowed, −100…100; `None` for text
+/// that is no number.
+pub(super) fn parse_percent(text: &str) -> Option<f32> {
+    let t = text.trim().trim_end_matches('%').trim().replace(',', ".");
+    let v: f32 = t.trim_start_matches('+').parse().ok()?;
+    v.is_finite().then(|| (v / 100.0).clamp(-1.0, 1.0))
+}
+
+/// The amount's text, `+37 %` or `-100 %`.
+pub(super) fn percent_text(amount: f32) -> String {
+    format!("{:+.0} %", (100.0 * amount).round())
+}
+
+/// The inspector for `param`'s knob, in the app's dialog look (as the fine tune dialog's): the title, the source
+/// (Off, LFO, EG) as three buttons, the bipolar amount as a slider, and under it the amount as text that a tap turns
+/// into a field for typing a percent (the keyboard opens). Returns the route settings the user changed this frame.
 pub(super) fn inspector(ui: &mut Ui, cx: &UiCtx, state: &mut PanelState, id: Id) -> Vec<u32> {
-    let Some((param, at)) = state.inspect else {
+    let Some((param, _)) = state.inspect else {
         return Vec::new();
     };
     let Some(target) = target_of(param) else {
         state.inspect = None;
         return Vec::new();
     };
+    let ctx = ui.ctx().clone();
+    let (m, c) = (cx.m, &cx.theme.colors);
+    let ink = c.text.to_color32();
+    let screen = ctx.content_rect();
+    let size = vec2(m.u(BOX[0]).min(screen.width() - m.u(1.0)), m.u(BOX[1]));
+    let min = screen.center() - size / 2.0;
+    let rect = Rect::from_min_size(pos2(m.round_px(min.x), m.round_px(min.y)), size);
+    let id = id.with("inspector");
+    let backdrop = dialog::dialog_box(&ctx, id, (c, m), screen, rect);
     let slot = slot_for(state, param);
     let mut changed = Vec::new();
-    let mut close = false;
-    let m = cx.m;
-    let size = vec2(m.u(7.0), m.u(1.2));
-    let screen = ui.ctx().content_rect();
-    let at = Pos2::new(
-        at.x.clamp(screen.left() + size.x / 2.0, screen.right() - size.x / 2.0),
-        at.y.clamp(screen.top() + m.u(2.0), screen.bottom() - m.u(4.0)),
-    );
-    Area::new(id.with("inspector"))
+    let mut close = backdrop.clicked() || backdrop.secondary_clicked() || close_pressed(&ctx);
+    let pad = m.u(1.0);
+    let row = |top: f32, h: f32| {
+        Rect::from_x_y_ranges(
+            rect.left() + pad..=rect.right() - pad,
+            rect.top() + m.u(top)..=rect.top() + m.u(top + h),
+        )
+    };
+    let field_id = id.with("field");
+    let mut typing = state.inspect_text.take();
+    let mut apply = None;
+    Area::new(id)
         .order(Order::Foreground)
-        .fixed_pos(at)
-        .pivot(Align2::CENTER_CENTER)
-        .show(ui.ctx(), |ui| {
-            Frame::popup(ui.style()).show(ui, |ui| {
-                ui.set_width(size.x);
-                ui.label(format!("Modulate {}", MOD_TARGET_NAMES[target]));
-                let Some(slot) = slot else {
-                    ui.label("All four routes are in use (MATRIX page).");
-                    close |= ui.button("Close").clicked();
-                    return;
-                };
-                let current = setting(state, slot, MOD_SOURCE, 0.0) as usize;
-                let on_us = setting(state, slot, MOD_TARGET, 0.0) as usize == target;
-                let current = if on_us { current } else { 0 };
-                ui.horizontal(|ui| {
-                    for (i, name) in MOD_SOURCES.iter().enumerate() {
-                        let button = egui::Button::new(*name)
-                            .selected(current == i)
-                            .min_size(vec2(size.x / 3.0 - 6.0, size.y));
-                        if ui.add(button).clicked() && current != i {
-                            changed.extend(set_route(state, slot, param, i));
-                        }
-                    }
-                });
-                if current > 0 {
-                    let mut amount = 2.0 * setting(state, slot, MOD_AMOUNT, 0.5) - 1.0;
-                    ui.spacing_mut().slider_width = size.x - m.u(2.0);
-                    let slider = egui::Slider::new(&mut amount, -1.0..=1.0).text("Amount");
-                    if ui.add_sized(vec2(size.x, size.y), slider).changed() {
-                        changed.extend(set_amount(state, slot, amount));
-                    }
+        .fixed_pos(rect.min)
+        .constrain(false)
+        .fade_in(false)
+        .show(&ctx, |ui| {
+            ui.allocate_exact_size(rect.size(), Sense::hover());
+            let title = format!("Modulate {}", MOD_TARGET_NAMES[target]);
+            widgets::shrink(
+                ui.painter(),
+                m,
+                row(0.5, 1.5),
+                Align2::CENTER_CENTER,
+                &title,
+                TITLE.points() as u8,
+                ink,
+            );
+            // `Done` closes it (a tap outside or Escape do too).
+            let done = row(8.7, 1.3);
+            let done = Rect::from_center_size(done.center(), vec2(m.u(5.0), done.height()));
+            let b = dialog::button(id.with("done"), done, "Done", c, m);
+            if widgets::button(ui, cx, &b, true).clicked() {
+                close = true;
+            }
+            let Some(slot) = slot else {
+                let text = "All four routes are in use (MATRIX page).";
+                ui.painter().text(
+                    row(3.0, 2.0).center(),
+                    Align2::CENTER_CENTER,
+                    text,
+                    m.font_id(FontSize::Pt12),
+                    ink,
+                );
+                return;
+            };
+            let on_us = setting(state, slot, MOD_TARGET, 0.0) as usize == target;
+            let current = if on_us {
+                setting(state, slot, MOD_SOURCE, 0.0) as usize
+            } else {
+                0
+            };
+            // The three sources, solid buttons side by side.
+            let sources = row(2.4, 1.4);
+            let gap = m.u(0.3);
+            let w = (sources.width() - 2.0 * gap) / 3.0;
+            for (i, name) in MOD_SOURCES.iter().enumerate() {
+                let x = sources.left() + i as f32 * (w + gap);
+                let at = Rect::from_x_y_ranges(x..=x + w, sources.y_range());
+                let b = dialog::button(id.with(("source", i)), at, name, c, m);
+                if widgets::button(ui, cx, &b, current == i).clicked() && current != i {
+                    changed.extend(set_route(state, slot, param, i));
                 }
-                close |= ui
-                    .add(egui::Button::new("Done").min_size(vec2(size.x, size.y)))
-                    .clicked();
-            });
+            }
+            if current == 0 {
+                let hint = "Choose LFO or EG to modulate this knob.";
+                ui.painter().text(
+                    row(4.6, 2.0).center(),
+                    Align2::CENTER_CENTER,
+                    hint,
+                    m.font_id(FontSize::Pt10),
+                    ink.gamma_multiply(0.7),
+                );
+                return;
+            }
+            // The amount: a slider centred on 0, and its text.
+            let amount = 2.0 * setting(state, slot, MOD_AMOUNT, 0.5) - 1.0;
+            let mut v = 0.5 * (amount + 1.0);
+            let accent = source_accent(current).color(c);
+            let control = Control {
+                menu: ParamMenu::Off,
+                ..Control::new(id.with("amount"), row(4.4, 1.6), "", accent, 0.5)
+            };
+            let text = |v: f32| percent_text(2.0 * v - 1.0);
+            if widgets::fine_tune_slider(ui, cx, &control, &mut v, text).changed() {
+                changed.extend(set_amount(state, slot, 2.0 * v - 1.0));
+            }
+            let value = row(6.2, 1.6);
+            if let Some(buffer) = typing.as_mut() {
+                let field = value.shrink2(vec2(m.u(4.0), 0.0));
+                ui.painter()
+                    .rect_filled(field, 0.0, c.background.to_color32());
+                let edit = TextEdit::singleline(buffer)
+                    .id(field_id)
+                    .frame(false)
+                    .margin(Margin::symmetric(m.u(0.25) as i8, 0))
+                    .font(m.font_id(FontSize::Pt12))
+                    .text_color(ink)
+                    .desired_width(f32::INFINITY)
+                    .min_size(field.size())
+                    .horizontal_align(Align::Center)
+                    .vertical_align(Align::Center);
+                let mut response = ui.put(field, edit);
+                crate::android_text::edit(&mut response, buffer, usize::MAX);
+                if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    apply = Some(buffer.clone());
+                } else if !response.has_focus() && !response.lost_focus() {
+                    // The field takes the keyboard as soon as it shows.
+                    response.request_focus();
+                }
+            } else {
+                let tap = ui.interact(value, id.with("value"), Sense::click());
+                ui.painter().text(
+                    value.center(),
+                    Align2::CENTER_CENTER,
+                    percent_text(amount),
+                    m.font_id(TITLE),
+                    ink,
+                );
+                if tap.clicked() {
+                    typing = Some(format!("{:.0}", 100.0 * amount));
+                }
+            }
         });
-    // A tap outside closes it too.
-    let outside = ui.ctx().input(|i| i.pointer.any_pressed())
-        && ui
-            .ctx()
-            .pointer_interact_pos()
-            .is_some_and(|p| !ui.ctx().is_pointer_over_area() && p.is_finite());
-    if close || outside {
-        state.inspect = None;
+    // Enter takes the typed percent (text that is no number is dropped), then the field closes.
+    if let (Some(text), Some(slot)) = (apply, slot) {
+        if let Some(amount) = parse_percent(&text) {
+            changed.extend(set_amount(state, slot, amount));
+        }
+        typing = None;
+        ctx.memory_mut(|mem| mem.surrender_focus(field_id));
     }
+    if close {
+        typing = None;
+        state.inspect = None;
+        ctx.memory_mut(|mem| mem.surrender_focus(field_id));
+    }
+    state.inspect_text = typing;
+    ctx.request_repaint();
     changed
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_percents_are_read_leniently_and_clamped() {
+        for (text, want) in [
+            ("37", Some(0.37)),
+            (" -50 % ", Some(-0.5)),
+            ("+12,5", Some(0.125)),
+            ("250", Some(1.0)),
+            ("-1000", Some(-1.0)),
+            ("", None),
+            ("abc", None),
+            ("NaN", None),
+        ] {
+            assert_eq!(parse_percent(text), want, "{text:?}");
+        }
+        assert_eq!(percent_text(0.374), "+37 %");
+        assert_eq!(percent_text(-1.0), "-100 %");
+    }
 
     fn cutoff() -> usize {
         21

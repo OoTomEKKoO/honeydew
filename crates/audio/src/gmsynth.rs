@@ -76,8 +76,16 @@ pub const FILTER_EXTRA: u32 = 16300;
 /// Honeydew's filter DRIVE (0…1, off at 0): the voice is pushed into the filter's own soft clip ([`CLIP`]) before it, as
 /// Serum's Drive does, for grit and body without a louder output. Kept in the `CSTM` blob after the modulation routes.
 pub const FILTER_DRIVE: u32 = 16400;
-/// The input gain at full DRIVE (1 at none), and how much of it the output gives back (its square root's inverse).
-const DRIVE_GAIN: f32 = 8.0;
+/// The input gain at full DRIVE (1 at none): the voice, which is quiet (half a unit at most), is boosted until it
+/// runs into [`drive_clip`], so the knob is heard from its first quarter on. The output gives back
+/// `1 / (1 + 1.5·drive)`, so the sound gets denser rather than much louder.
+const DRIVE_GAIN: f32 = 30.0;
+
+/// A smooth, symmetric soft clip (a rational tanh, exact in its slope at 0, flat beyond ±3).
+fn drive_clip(x: f32) -> f32 {
+    let x = x.clamp(-3.0, 3.0);
+    x * (27.0 + x * x) / (27.0 + 9.0 * x * x)
+}
 /// Honeydew's FM depth range (not in FL Studio Mobile): item 0 `x1` is the original depth, the others multiply the
 /// phase offset FM adds (A is read at φ_A + (B + 1)·m·scale cycles), so a low amount already modulates hard. Kept in
 /// the `CSTM` blob after [`FILTER_EXTRA`].
@@ -133,7 +141,9 @@ pub const MOD_SOURCES: [&str; 3] = ["Off", "LFO", "EG"];
 pub const MOD_TARGETS: [usize; 17] = [
     1, 2, 11, 12, 13, 15, 20, 21, 22, 27, 40, 34, 44, 45, 51, 52, 58,
 ];
-pub const MOD_TARGET_NAMES: [&str; 17] = [
+/// A route's target menu: `Off` first (item 0, no route), then [`MOD_TARGETS`] in order.
+pub const MOD_TARGET_NAMES: [&str; 18] = [
+    "Off",
     "Level",
     "Pan",
     "Osc B Pitch",
@@ -157,8 +167,8 @@ pub const MOD_TARGET_NAMES: [&str; 17] = [
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 struct Route {
     source: u8,
-    /// Index into [`MOD_TARGETS`].
-    target: usize,
+    /// Index into [`MOD_TARGETS`]; `None` is the menu's `Off`.
+    target: Option<usize>,
     /// −1…1.
     amount: f32,
 }
@@ -601,12 +611,12 @@ impl Voice {
                 .clamp(0.0, 1.0);
             self.last_cutoff = cutoff;
             let (a, b) = filter.at(cutoff);
-            // DRIVE: the voice is pushed into the filter's soft clip, and the output gives back half of that gain in
-            // dB terms (the square root), so the sound gets fuller and grittier rather than just louder. Off (0)
-            // leaves the signal bit for bit as it was.
+            // DRIVE: the voice is boosted into a soft clip before the filter ([`drive_clip`]), so it gets fuller and
+            // grittier; the output gives part of the level back. Off (0) leaves the signal bit for bit as it was.
             let (left, right, give_back) = if c.drive > 0.0 {
                 let gain = 1.0 + (DRIVE_GAIN - 1.0) * c.drive;
-                (left * gain, right * gain, gain.sqrt().recip())
+                let (l, r) = (drive_clip(left * gain), drive_clip(right * gain));
+                (l, r, 1.0 / (1.0 + 1.5 * c.drive))
             } else {
                 (left, right, 1.0)
             };
@@ -917,8 +927,8 @@ impl GmSynth {
                 2 => eg_now,
                 _ => continue,
             };
-            if route.amount != 0.0 {
-                let target = &mut eff[MOD_TARGETS[route.target]];
+            if let (Some(target), true) = (route.target, route.amount != 0.0) {
+                let target = &mut eff[MOD_TARGETS[target]];
                 *target = (*target + route.amount * source).clamp(0.0, 1.0);
             }
         }
@@ -1680,7 +1690,11 @@ impl Instrument for GmSynth {
                 let route = &mut self.routes[slot];
                 match (key - MOD_BASE) % 10 {
                     MOD_SOURCE => route.source = (value as usize).min(MOD_SOURCES.len() - 1) as u8,
-                    MOD_TARGET => route.target = (value as usize).min(MOD_TARGETS.len() - 1),
+                    MOD_TARGET => {
+                        // Menu item 0 is Off, item n the target n − 1.
+                        let item = (value as usize).min(MOD_TARGETS.len());
+                        route.target = item.checked_sub(1);
+                    }
                     MOD_AMOUNT => {
                         route.amount = if value.is_finite() {
                             (2.0 * value - 1.0).clamp(-1.0, 1.0)
@@ -2227,7 +2241,7 @@ mod tests {
 
     #[test]
     fn a_route_sends_the_lfo_to_any_listed_parameter_and_amount_zero_changes_nothing() {
-        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32;
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32 + 1.0;
         let route = |synth: &mut GmSynth, amount: f32| {
             synth.set_parameter(32, 0.0); // fast LFO
             synth.set_parameter(34, 0.5); // the old LFO amount stays 0
@@ -2263,7 +2277,7 @@ mod tests {
 
     #[test]
     fn an_eg_route_follows_the_envelope_and_an_off_source_does_nothing() {
-        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32;
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32 + 1.0;
         let set = |synth: &mut GmSynth, source: f32| {
             synth.set_parameter(37, 0.3); // EG DECAY
             synth.set_parameter(38, 0.0); // EG SUSTAIN
@@ -2293,7 +2307,9 @@ mod tests {
             synth.set_setting(MOD_BASE + 30 + field, value);
         }
         assert_eq!(synth.routes[3].amount, 0.0);
-        assert_eq!(synth.routes[3].target, MOD_TARGETS.len() - 1);
+        assert_eq!(synth.routes[3].target, Some(MOD_TARGETS.len() - 1));
+        synth.set_setting(MOD_BASE + 31, 0.0);
+        assert_eq!(synth.routes[3].target, None, "item 0 is Off");
         synth.set_setting(MOD_BASE + 39, 1.0);
         synth.note_on(60, 1.0, 0.5);
         let (mut left, mut right) = (vec![0.0; 256], vec![0.0; 256]);
@@ -2322,6 +2338,17 @@ mod tests {
         let (driven, peak) = drive_run(1.0);
         assert!(driven.iter().all(|x| x.is_finite()));
         assert_ne!(plain, driven);
+        // Clipped: the waveform is flatter, so its peak is closer to its average level than the plain wave's.
+        let crest = |v: &[f32]| {
+            let rms = (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
+            v.iter().fold(0.0_f32, |m, x| m.max(x.abs())) / rms.max(1e-6)
+        };
+        assert!(
+            crest(&driven) < crest(&plain),
+            "{} {}",
+            crest(&driven),
+            crest(&plain)
+        );
         let (_, plain_peak) = drive_run(0.0);
         // Fuller, not much louder: the output gives back part of the gain.
         assert!(

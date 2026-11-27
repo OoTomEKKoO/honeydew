@@ -551,6 +551,8 @@ pub struct PanelState {
     /// The GM Synth's modulation inspector: the param whose knob asked for it and where (`Modulate…` in the knob's
     /// menu), until it is closed.
     pub inspect: Option<(usize, eframe::egui::Pos2)>,
+    /// The text being typed in the inspector's amount field, while there is one.
+    pub inspect_text: Option<String>,
 }
 
 impl PanelState {

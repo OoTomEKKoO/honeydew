@@ -124,6 +124,24 @@ zu weit verloren gehen.
 - Noch offen: Locks folgen verschobenen/kopierten Noten (bisher bleibt der Lock an Zeit+Taste; Verschieben löst ihn von
   der Note), Drum-Editor/Step-Sequencer, Kanalregler, mehrere Parameter gleichzeitig sichtbar, Wert-Anzeige beim Malen.
 
+## 3f. Feedback zur APK `45d52a7` und Umsetzung (Tag 3, gebaut, Tests grün)
+
+- Filteranzeige: die senkrechte Hilfslinie läuft nicht mehr mit, die bewegte Kurve behält die Filterfarbe.
+- DRIVE: deutlich stärker (Eingangsverstärkung bis 30x in einen weichen Clip vor dem Filter, Ausgang gibt Pegel zurück).
+- MATRIX: Ziel-Menü hat "Off" als erstes Element (Dateiwerte der Test-APK verschieben sich um eins), Routen als 2x2-Raster mit
+  großen AMOUNT-Reglern.
+- Modulate-Panel im Dialog-Design (wie Fine tune): Quelle als drei solide Buttons, bipolarer Slider, Wert als Text; Tipp auf den
+  Wert öffnet das Eingabefeld (Tastatur) für Prozent; "Done" schließt.
+- Doppeltipp zum Zurücksetzen funktioniert auch mit zweitem Finger, während der erste eine Taste hält (`other_finger`).
+- P-Locks: Locks werden vor den Noten geplant, damit der Wert springt statt zu gleiten; Header mit drei soliden Tabs
+  (Parametername zentriert, zweiter Tipp auf den gewählten Tab öffnet die Liste), Lane im Look des Drum-Editors (Balken über
+  der Note; mittig startende Balken für Pan/Pitch-artige Parameter).
+
+## 3g. Später auf der Liste: Trance Delay aufwerten
+
+Wunsch des Besitzers (Tag 3): Das Trance Delay ordentlich aufpimpen. Sehr wichtig: Timing in **3/16** (dotted eighth bzw.
+drei Sechzehntel), außerdem eine übersichtlichere, modernere Oberfläche im eigenen Farbthema. Erst nach den P-Locks.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:

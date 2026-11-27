@@ -341,7 +341,9 @@ pub struct PianoRoll {
     graph_drag: Option<(Vec<Event>, bool)>,
     /// The `Lock` item's parameter ([`locks::lockable`]), and whether the paint drag that runs has changed a lock (its
     /// end then closes an undo step).
-    lock_target: Option<crate::song::AutomationTarget>,
+    lock_targets: [Option<crate::song::AutomationTarget>; 3],
+    /// The shown one of the three lock tabs.
+    lock_tab: usize,
     lock_drag: Option<bool>,
     /// The graph lane's value snap, `Vel`'s and `Pan`'s ([`graph_lane::ROLL_PROPS`]): app settings, off by default.
     pub value_snap: [ValueSnap; 2],
@@ -505,7 +507,8 @@ impl PianoRoll {
             region: RangeSelect::default(),
             graph: GraphLane::default(),
             graph_drag: None,
-            lock_target: None,
+            lock_targets: [None; 3],
+            lock_tab: 0,
             lock_drag: None,
             value_snap: [ValueSnap::OFF; 2],
             graph_tab_shift: 0.0,
@@ -2031,8 +2034,10 @@ impl PianoRoll {
         }
     }
 
-    /// The graph lane's `Lock` item over `values`: a header that names the parameter (a tap opens the parameter list),
-    /// and under it a bar per note, full height for a lock and a thin line at the saved value for a note without one.
+    /// The graph lane's `Lock` item over `values`: a header of three solid tabs, each holding one parameter (a tap on
+    /// a tab shows its lane, a second tap on the shown tab opens the parameter list), and under it the lane in the
+    /// drum editor's look: a bar over each note at its locked value, from the bottom, or from the centre band for a
+    /// parameter that rests in the middle (Pan, Pitch), and a faint mark at the saved value for a note with no lock.
     /// A drag paints the locks of the notes under the finger ([`locks::paint_locks`]); one that changed a lock is a
     /// final edit when it ends.
     #[allow(clippy::too_many_arguments)]
@@ -2053,46 +2058,62 @@ impl PianoRoll {
         painter.rect_filled(values, 0.0, colors.control_fill.to_color32());
         let options = (song.channels.get(self.channel)).map_or_else(Vec::new, locks::lockable);
         // A target the channel no longer offers (its instrument was removed) is none.
-        if self
-            .lock_target
-            .is_some_and(|t| !options.iter().any(|(o, _)| *o == t))
-        {
-            self.lock_target = None;
+        for slot in &mut self.lock_targets {
+            if slot.is_some_and(|t| !options.iter().any(|(o, _)| *o == t)) {
+                *slot = None;
+            }
         }
-        let name = (self.lock_target)
-            .and_then(|t| options.iter().find(|(o, _)| *o == t))
-            .map(|(_, n)| n.as_str());
         let ink = color.to_color32();
-        let header = Rect::from_min_size(values.min, vec2(m.u(9.0).min(values.width()), m.u(1.0)));
-        let tap = ui.interact(header, id.with("lock param"), Sense::click());
-        let text = match name {
-            Some(n) => format!("Lock: {n}  ▾"),
-            None if options.is_empty() => "No instrument parameters".to_owned(),
-            None => "Lock: tap to choose a parameter  ▾".to_owned(),
-        };
-        painter.rect_filled(
-            header,
-            0.0,
-            ink.gamma_multiply(if tap.is_pointer_button_down_on() {
-                0.35
+        // The tabs: solid, the shown one in the channel colour, the others in `menuFill`; only the name, centred.
+        let tab_h = m.u(1.0).min(values.height() / 2.0);
+        let gap = m.t();
+        let tab_w = (values.width() - 2.0 * gap) / 3.0;
+        for i in 0..3 {
+            let x = values.left() + i as f32 * (tab_w + gap);
+            let tab = Rect::from_min_size(pos2(x, values.top()), vec2(tab_w, tab_h));
+            let response = ui.interact(tab, id.with(("lock tab", i)), Sense::click());
+            let shown = self.lock_tab == i;
+            let fill = if shown {
+                ink
             } else {
-                0.18
-            }),
-        );
-        painter.text(
-            header.left_center() + vec2(m.u(0.3), 0.0),
-            Align2::LEFT_CENTER,
-            text,
-            m.font_id(crate::metrics::FontSize::Pt10),
-            colors.text.to_color32(),
-        );
-        if tap.clicked() && !options.is_empty() {
-            self.menu = Some(Menu::LockParam(header.left_bottom() + vec2(m.u(4.0), 0.0)));
+                colors.menu_fill.to_color32()
+            };
+            painter.rect_filled(tab, 0.0, fill);
+            let name = (self.lock_targets[i])
+                .and_then(|t| options.iter().find(|(o, _)| *o == t))
+                .map_or("+", |(_, n)| n.as_str());
+            let text = if shown {
+                colors.module_fill.to_color32()
+            } else {
+                colors.text.to_color32()
+            };
+            widgets::shrink(
+                &painter,
+                m,
+                tab.shrink2(vec2(m.u(0.2), 0.0)),
+                Align2::CENTER_CENTER,
+                name,
+                10,
+                text,
+            );
+            if response.clicked() {
+                if shown && !options.is_empty() {
+                    self.menu = Some(Menu::LockParam(tab.left_bottom() + vec2(m.u(4.0), 0.0)));
+                } else {
+                    self.lock_tab = i;
+                }
+            }
         }
-        let (Some(target), true) = (self.lock_target, values.height() > header.height()) else {
+        let (Some(target), true) = (self.lock_target(), values.height() > tab_h + gap) else {
             return;
         };
-        let area = values.with_min_y(header.bottom() + px);
+        let area = values.with_min_y(values.top() + tab_h + gap);
+        let bipolar =
+            (song.channels.get(self.channel)).is_some_and(|c| locks::is_bipolar(c, target));
+        let prop = if bipolar { Prop::Pan } else { Prop::Velocity };
+        // The value of a lock as the drum bars read it (`drum_bar`'s byte of the prop).
+        let byte = |v: f32| (v.clamp(0.0, 1.0) * f32::from(prop.max())).round() as u16;
+        graph_lane::drum_band(&painter, area, prop, cx);
         // The paint.
         let response = ui.interact(area, id.with("lock paint"), Sense::drag());
         let live = primary_down_live(ui, response.id);
@@ -2100,7 +2121,11 @@ impl PianoRoll {
             self.lock_drag = Some(false);
         }
         if let (Some(p), true) = (response.interact_pointer_pos(), response.dragged() && live) {
-            let value = graph_lane::v_at(area, p.y);
+            let value = if bipolar {
+                graph_lane::v_centred(area, p.y, m)
+            } else {
+                graph_lane::v_at(area, p.y)
+            };
             let tick = g.tick(p.x);
             let selected = self.selected.clone();
             let painted = self
@@ -2123,42 +2148,41 @@ impl PianoRoll {
             return;
         };
         let painter = ui.painter_at(area);
-        for (i, e) in clip.events.iter().enumerate() {
-            let Some((pos, len, key)) = note(e) else {
-                continue;
-            };
-            let x0 = m.round_px(g.x(pos));
-            let x1 = g.x(pos + len).max(x0 + px);
-            let selected = self.selected.get(i) == Some(&true);
-            let level = |v: f32| m.round_px(area.bottom() - area.height() * v.clamp(0.0, 1.0));
-            match clip.lock(pos as u32, key, target) {
-                Some(lock) => {
-                    let y = level(lock.value);
-                    let tone = if selected { Color32::WHITE } else { ink };
-                    painter.rect_filled(
-                        Rect::from_x_y_ranges(x0..=x0 + 4.0 * px, y..=area.bottom()),
-                        0.0,
-                        tone,
-                    );
-                    painter.rect_filled(
-                        Rect::from_x_y_ranges(x0..=x1, y..=y + 2.0 * px),
-                        0.0,
-                        tone,
-                    );
+        let pale =
+            crate::ui::clips::mix(color, colors.text, graph_lane::SELECTED_TINT).to_color32();
+        for pass in [false, true] {
+            for (i, e) in clip.events.iter().enumerate() {
+                if (self.selected.get(i) == Some(&true)) != pass {
+                    continue;
                 }
-                None => {
-                    if let Some(v) = base {
-                        let y = level(v);
-                        let faint = ink.gamma_multiply(0.35);
-                        painter.rect_filled(Rect::from_x_y_ranges(x0..=x1, y..=y + px), 0.0, faint);
+                let Some((pos, len, key)) = note(e) else {
+                    continue;
+                };
+                let x0 = m.round_px(g.x(pos));
+                let x = Rangef::new(x0, m.round_px(g.x(pos + len)).max(x0 + px));
+                match clip.lock(pos as u32, key, target) {
+                    Some(lock) => {
+                        let fill = if pass { pale } else { ink };
+                        graph_lane::drum_bar(&painter, prop, byte(lock.value), x, area, fill, m);
+                    }
+                    None => {
+                        if let Some(v) = base {
+                            let faint = ink.gamma_multiply(0.3);
+                            graph_lane::drum_bar(&painter, prop, byte(v), x, area, faint, m);
+                        }
                     }
                 }
             }
         }
     }
 
-    /// The `Lock` item's parameter list: `Clear` first (it removes the shown parameter's locks), then one row per
-    /// parameter of the channel's instruments, in columns.
+    /// The shown lock tab's parameter.
+    fn lock_target(&self) -> Option<crate::song::AutomationTarget> {
+        self.lock_targets[self.lock_tab.min(2)]
+    }
+
+    /// The `Lock` item's parameter list for the shown tab: `Clear locks` first (it removes the shown parameter's
+    /// locks and empties the tab), then one row per parameter of the channel's instruments, in columns.
     fn lock_menu(
         &mut self,
         ctx: &egui::Context,
@@ -2175,7 +2199,7 @@ impl PianoRoll {
         for (i, (target, name)) in options.iter().enumerate() {
             let slot = i + 1;
             items.push(PopupItem {
-                current: self.lock_target == Some(*target),
+                current: self.lock_target() == Some(*target),
                 ..PopupItem::new(i, slot / PER_COLUMN, slot % PER_COLUMN, name.clone())
             });
         }
@@ -2187,16 +2211,18 @@ impl PianoRoll {
             &items,
             cx,
         );
+        let tab = self.lock_tab.min(2);
         match result.selected {
             Some(usize::MAX) => {
-                if let Some(target) = self.lock_target
+                if let Some(target) = self.lock_target()
                     && let Some(clip) = self.clip_mut(song)
                     && locks::clear_locks(clip, target)
                 {
                     edited(actions, true);
                 }
+                self.lock_targets[tab] = None;
             }
-            Some(i) => self.lock_target = options.get(i).map(|(t, _)| *t),
+            Some(i) => self.lock_targets[tab] = options.get(i).map(|(t, _)| *t),
             None => {}
         }
         if result.close || result.selected.is_some() {

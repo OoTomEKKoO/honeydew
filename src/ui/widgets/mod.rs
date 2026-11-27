@@ -487,6 +487,17 @@ fn other_finger(
     for f in fingers(ui, c.id) {
         match f {
             Finger::Down(finger, at) if finger != MOUSE && !pointer => {
+                // A double tap by this finger resets the control, as the pointer's does, while the pointer plays a
+                // key: the second touch-down within [`DOUBLE_TAP_S`] of the first sets the default (Honeydew change).
+                let (tap_key, now) = (c.id.with("other touch-down"), ui.input(|i| i.time));
+                let last = ui.data(|d| d.get_temp::<f64>(tap_key));
+                ui.data_mut(|d| d.insert_temp(tap_key, now));
+                if last.is_some_and(|t| now - t < DOUBLE_TAP_S) {
+                    ui.data_mut(|d| d.remove::<f64>(tap_key));
+                    moved = Some(c.default);
+                    held = None;
+                    continue;
+                }
                 held = Some(OtherFinger {
                     finger,
                     origin: at,

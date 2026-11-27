@@ -39,6 +39,7 @@ const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOIC
 /// [`honeydew_audio::gmsynth::MOD_BASE`]); they must match the engine's lists.
 const MOD_SOURCES: &[&str] = &["Off", "LFO", "EG"];
 const MOD_TARGETS: &[&str] = &[
+    "Off",
     "Level",
     "Pan",
     "Osc B Pitch",
@@ -58,21 +59,21 @@ const MOD_TARGETS: &[&str] = &[
     "FX 2 X",
 ];
 
-/// One route of the MATRIX page: its source and target menus over its bipolar amount knob (centre = 0).
+/// One route of the MATRIX page: its source and target menus stacked beside a big bipolar amount knob (centre = 0).
 fn route(slot: u32) -> Part {
     let id = 66000 + 10 * slot;
     line([
-        spinner(id, "FROM")
-            .items(MOD_SOURCES)
-            .compact()
-            .w(Size::Flex(1.0)),
-        spinner(id + 1, "TO")
-            .items(MOD_TARGETS)
-            .items_per_column(6)
-            .compact()
-            .w(Size::Flex(1.6)),
-        knob(id + 2, "AMOUNT").default(0.5).w(Size::Flex(1.2)),
+        page([
+            spinner(id, "FROM").items(MOD_SOURCES).compact(),
+            spinner(id + 1, "TO")
+                .items(MOD_TARGETS)
+                .items_per_column(6)
+                .compact(),
+        ])
+        .w(Size::Flex(1.25)),
+        knob(id + 2, "AMOUNT").default(0.5).w(Size::Flex(1.0)),
     ])
+    .margins(0.06, 0.06, 0.06, 0.06)
 }
 
 /// A page of rows of controls, top to bottom.
@@ -277,7 +278,10 @@ pub fn panel() -> Option<Panel> {
                 Accent::Lfo,
             ),
             // MATRIX: free routes of the LFO or the EG to any listed knob.
-            tint(page([route(0), route(1), route(2), route(3)]), Accent::Lfo),
+            tint(
+                page([line([route(0), route(1)]), line([route(2), route(3)])]),
+                Accent::Lfo,
+            ),
             // VOICES
             with_side(
                 knobs(
@@ -691,17 +695,9 @@ fn filter_display(
             let moving: Vec<Pos2> = (freqs.iter().zip(&gains))
                 .map(|(&hz, &db)| pos2(x_of(hz), y_of(db)))
                 .collect();
-            let live_x =
-                x_of(honeydew_audio::gmsynth::cutoff_hz(now)).clamp(inner.left(), inner.right());
+            // Only the curve moves, in the filter's own colour: the vertical cutoff line above stays at the knob.
             let painter = ui.painter();
-            painter.line_segment(
-                [pos2(live_x, inner.top()), pos2(live_x, inner.bottom())],
-                Stroke::new(t * 0.75, text.gamma_multiply(0.6)),
-            );
-            painter.add(Shape::line(
-                moving,
-                Stroke::new(t * 1.5, text.gamma_multiply(0.9)),
-            ));
+            painter.add(Shape::line(moving, Stroke::new(t * 1.5, ink)));
         }
     }
     let handle = pos2(x, inner.bottom() - res * inner.height());
@@ -1148,18 +1144,18 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(66000, Widget::Spinner, "FROM", [0.00, 1.25, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
-                row(66001, Widget::Spinner, "TO", [4.46, 1.25, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66002, Widget::Knob, "AMOUNT", [11.60, 1.25, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
-                row(66010, Widget::Spinner, "FROM", [0.00, 2.81, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
-                row(66011, Widget::Spinner, "TO", [4.46, 2.81, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66012, Widget::Knob, "AMOUNT", [11.60, 2.81, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
-                row(66020, Widget::Spinner, "FROM", [0.00, 4.37, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
-                row(66021, Widget::Spinner, "TO", [4.46, 4.37, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66022, Widget::Knob, "AMOUNT", [11.60, 4.37, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
-                row(66030, Widget::Spinner, "FROM", [0.00, 5.93, 4.46, 1.56]).items("Off · LFO · EG").w(Size::Flex(1.0)).ink(Ink::Accent(Accent::Lfo)),
-                row(66031, Widget::Spinner, "TO", [4.46, 5.93, 7.14, 1.56]).items("Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").w(Size::Flex(1.6)).items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66032, Widget::Knob, "AMOUNT", [11.60, 5.93, 5.36, 1.56]).w(Size::Flex(1.2)).ink(Ink::Accent(Accent::Lfo)),
+                row(66000, Widget::Spinner, "FROM", [0.06, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66001, Widget::Spinner, "TO", [0.06, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66002, Widget::Knob, "AMOUNT", [4.70, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
+                row(66010, Widget::Spinner, "FROM", [8.54, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66011, Widget::Spinner, "TO", [8.54, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66012, Widget::Knob, "AMOUNT", [13.18, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
+                row(66020, Widget::Spinner, "FROM", [0.06, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66021, Widget::Spinner, "TO", [0.06, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66022, Widget::Knob, "AMOUNT", [4.70, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
+                row(66030, Widget::Spinner, "FROM", [8.54, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66031, Widget::Spinner, "TO", [8.54, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66032, Widget::Knob, "AMOUNT", [13.18, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT
         },

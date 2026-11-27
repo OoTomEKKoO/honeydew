@@ -163,6 +163,20 @@ pub(super) fn actions(
                 &mut actions,
             )?;
         }
+        // Parameter locks before the notes: a lock's write at a note's frame must come first, so that the note's voice
+        // starts on the locked value (a new voice snaps its filter to what the params say as it starts) and the
+        // value does not glide to it.
+        if !instruments.is_empty() {
+            super::locks::actions(
+                song,
+                channel,
+                instruments,
+                end_beat,
+                sample_rate,
+                tempo_bpm,
+                &mut actions,
+            )?;
+        }
         // A channel's pad sampler plays its notes too.
         if !instruments.is_empty() || kit.is_some() {
             notes(
@@ -201,15 +215,6 @@ pub(super) fn actions(
         }
         super::audio_clips::actions(song, channel, sample_rate, tempo_bpm, &mut actions)?;
         if !instruments.is_empty() {
-            super::locks::actions(
-                song,
-                channel,
-                instruments,
-                end_beat,
-                sample_rate,
-                tempo_bpm,
-                &mut actions,
-            )?;
             super::slides::actions(
                 song,
                 channel,
