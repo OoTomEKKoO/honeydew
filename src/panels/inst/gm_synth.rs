@@ -12,6 +12,7 @@ use crate::metrics::FontSize;
 use crate::panels::LOWER_TABS;
 use crate::panels::build::*;
 use crate::panels::{ModuleInstance, PanelState};
+use crate::theme::Accent;
 use crate::ui::{UiCtx, widgets};
 // The waveshapes of the OSC `A` and `B` spinners, kept with the preset, not as params.
 use crate::params::GMSYNTH_WAVESHAPES as WAVESHAPES;
@@ -57,128 +58,146 @@ pub fn panel() -> Option<Panel> {
         tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
         vec![
             // LEVEL
-            page([
-                picture(41100, env_level, 2.2),
-                knobs(
-                    [
-                        knob(41000, "LEVEL").p(1),
-                        knob(42000, "PAN").p(2),
-                        knob(43000, "ATK").p(3),
-                        knob(44000, "DEC").p(4),
-                        knob(45000, "SUS").p(5),
-                        knob(46000, "REL").p(6),
-                    ],
-                    1.5,
-                ),
-            ]),
+            tint(
+                page([
+                    picture(41100, env_level, 2.2),
+                    knobs(
+                        [
+                            knob(41000, "LEVEL").p(1),
+                            knob(42000, "PAN").p(2),
+                            knob(43000, "ATK").p(3),
+                            knob(44000, "DEC").p(4),
+                            knob(45000, "SUS").p(5),
+                            knob(46000, "REL").p(6),
+                        ],
+                        1.5,
+                    ),
+                ]),
+                Accent::Level,
+            ),
             // OSC: each oscillator is its own menu, a live picture of the wave whose tap opens the shape list.
-            page([
-                line([
-                    spinner(21100, "A")
-                        .items(WAVESHAPES)
-                        .items_per_column(10)
-                        .draw(wave_a)
-                        .margins(0.1, 0.1, 0.1, 0.1),
-                    spinner(21200, "B")
-                        .items(WAVESHAPES)
-                        .items_per_column(10)
-                        .draw(wave_b)
-                        .margins(0.1, 0.1, 0.1, 0.1),
-                ])
-                .h(Size::Flex(1.9)),
-                knobs(
-                    [
-                        knob(22000, "PITCH B").p(11),
-                        knob(23000, "FINE B").p(12),
-                        knob(24000, "PHASE B").p(14),
-                        knob(25000, "BALANCE").p(13),
-                        knob(26000, "NOISE").p(20),
-                    ],
-                    1.5,
-                ),
-            ]),
+            tint(
+                page([
+                    line([
+                        spinner(21100, "A")
+                            .items(WAVESHAPES)
+                            .items_per_column(10)
+                            .draw(wave_a)
+                            .margins(0.1, 0.1, 0.1, 0.1),
+                        spinner(21200, "B")
+                            .items(WAVESHAPES)
+                            .items_per_column(10)
+                            .draw(wave_b)
+                            .margins(0.1, 0.1, 0.1, 0.1),
+                    ])
+                    .h(Size::Flex(1.9)),
+                    knobs(
+                        [
+                            knob(22000, "PITCH B").p(11),
+                            knob(23000, "FINE B").p(12),
+                            knob(24000, "PHASE B").p(14),
+                            knob(25000, "BALANCE").p(13),
+                            knob(26000, "NOISE").p(20),
+                        ],
+                        1.5,
+                    ),
+                ]),
+                Accent::Osc,
+            ),
             // MOD
-            page([
-                picture(31100, env_mod, 2.0),
-                knobs(
-                    [
-                        knob(31000, "MOD. AMNT").p(15),
-                        knob(33000, "ATTACK").p(17),
-                        knob(34000, "DECAY").p(18),
-                        knob(35000, "EG AMOUNT").p(19),
-                        knob(37000, "MW AMOUNT").default(0.5),
-                    ],
-                    1.5,
-                ),
-                line([
-                    spinner(32000, "KIND").p(16).compact(),
-                    // Honeydew's own: how far FM modulates (`x1` is the original depth).
-                    spinner(32100, "FM RANGE").items(FM_RANGES).compact(),
-                    // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.`, mid.
-                    spinner(36100, "PB RANGE")
-                        .items(PB_RANGE)
-                        .default(1.0)
-                        .compact(),
-                    spinner(36200, "MW DEST")
-                        .items(MW_DEST)
-                        .default(2.0)
-                        .compact(),
-                ])
-                .h(Size::U(MENUS)),
-            ]),
+            tint(
+                page([
+                    picture(31100, env_mod, 2.0),
+                    knobs(
+                        [
+                            knob(31000, "MOD. AMNT").p(15),
+                            knob(33000, "ATTACK").p(17),
+                            knob(34000, "DECAY").p(18),
+                            knob(35000, "EG AMOUNT").p(19),
+                            knob(37000, "MW AMOUNT").default(0.5),
+                        ],
+                        1.5,
+                    ),
+                    line([
+                        spinner(32000, "KIND").p(16).compact(),
+                        // Honeydew's own: how far FM modulates (`x1` is the original depth).
+                        spinner(32100, "FM RANGE").items(FM_RANGES).compact(),
+                        // A new GMSynth's `CSTM` (`cstm::GMSYNTH`, which owns the encoding): `2 smt`, `Osc. Mod.`, mid.
+                        spinner(36100, "PB RANGE")
+                            .items(PB_RANGE)
+                            .default(1.0)
+                            .compact(),
+                        spinner(36200, "MW DEST")
+                            .items(MW_DEST)
+                            .default(2.0)
+                            .compact(),
+                    ])
+                    .h(Size::U(MENUS)),
+                ]),
+                Accent::Mod,
+            ),
             // FILTER
-            page([
-                picture(12100, filter_display, 2.4),
-                knobs(
-                    [
-                        knob(11000, "CUTOFF").p(21),
-                        knob(12000, "RES").p(22),
-                        knob(13000, "ATTACK").p(25),
-                        knob(14000, "DECAY").p(26),
-                        knob(15000, "AMOUNT").p(27),
-                    ],
-                    1.7,
-                ),
-                line([
-                    text_toggle(16100, "KBD").p(24).w(Size::Flex(0.45)),
-                    spinner(16200, "KIND").p(23).compact(),
-                    // Honeydew's own extra filter types.
-                    spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
-                ])
-                .h(Size::U(MENUS)),
-            ]),
+            tint(
+                page([
+                    picture(12100, filter_display, 2.4),
+                    knobs(
+                        [
+                            knob(11000, "CUTOFF").p(21),
+                            knob(12000, "RES").p(22),
+                            knob(13000, "ATTACK").p(25),
+                            knob(14000, "DECAY").p(26),
+                            knob(15000, "AMOUNT").p(27),
+                        ],
+                        1.7,
+                    ),
+                    line([
+                        text_toggle(16100, "KBD").p(24).w(Size::Flex(0.45)),
+                        spinner(16200, "KIND").p(23).compact(),
+                        // Honeydew's own extra filter types.
+                        spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
+                    ])
+                    .h(Size::U(MENUS)),
+                ]),
+                Accent::Filter,
+            ),
             // EG
-            page([
-                picture(51100, env_eg, 2.0),
-                knobs(
-                    [
-                        knob(51000, "AMOUNT").p(40),
-                        knob(52000, "ATTACK").p(36),
-                        knob(53000, "DECAY").p(37),
-                        knob(54000, "SUSTAIN").p(38),
-                        knob(55000, "RELEASE").p(39),
-                    ],
-                    1.5,
-                ),
-                line([
-                    text_toggle(56100, "VEL").p(74).w(Size::Flex(0.45)),
-                    spinner(56200, "DEST").p(41).compact(),
-                ])
-                .h(Size::U(MENUS)),
-            ]),
+            tint(
+                page([
+                    picture(51100, env_eg, 2.0),
+                    knobs(
+                        [
+                            knob(51000, "AMOUNT").p(40),
+                            knob(52000, "ATTACK").p(36),
+                            knob(53000, "DECAY").p(37),
+                            knob(54000, "SUSTAIN").p(38),
+                            knob(55000, "RELEASE").p(39),
+                        ],
+                        1.5,
+                    ),
+                    line([
+                        text_toggle(56100, "VEL").p(74).w(Size::Flex(0.45)),
+                        spinner(56200, "DEST").p(41).compact(),
+                    ])
+                    .h(Size::U(MENUS)),
+                ]),
+                Accent::Envelope,
+            ),
             // LFO
-            page([
-                picture(61100, lfo_display, 2.2),
-                knobs(
-                    [
-                        knob(61000, "AMOUNT").p(34),
-                        spinner(62000, "SHAPE").p(33).compact(),
-                        spinner(63000, "DEST").p(35).compact(),
-                        spinner(64000, "RATE").p(32).items_per_column(5).compact(),
-                    ],
-                    1.3,
-                ),
-            ]),
+            tint(
+                page([
+                    picture(61100, lfo_display, 2.2),
+                    knobs(
+                        [
+                            knob(61000, "AMOUNT").p(34),
+                            spinner(62000, "SHAPE").p(33).compact(),
+                            spinner(63000, "DEST").p(35).compact(),
+                            spinner(64000, "RATE").p(32).items_per_column(5).compact(),
+                        ],
+                        1.3,
+                    ),
+                ]),
+                Accent::Lfo,
+            ),
             // VOICES
             page([
                 knobs(
@@ -198,7 +217,7 @@ pub fn panel() -> Option<Panel> {
                 ])
                 .h(Size::U(MENUS)),
             ]),
-            fx(),
+            tint(fx(), Accent::Fx),
         ],
     )))
 }
@@ -748,7 +767,8 @@ const SLOTS: Row = row(
     "1 · 2 · 3",
     [0.00, 1.25, 3.39, 4.68],
 )
-.h(Size::Flex(3.0));
+.h(Size::Flex(3.0))
+.ink(Ink::Accent(Accent::Fx));
 
 /// OSC `A` and `B`: the 29 waveshapes.
 #[cfg(test)]
@@ -769,15 +789,15 @@ pub const REFERENCE: Reference = Reference {
             tab: 3,
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.63]).margins(0.1, 0.1, 0.1, 0.1),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.08, 3.39, 2.01]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 4.08, 3.39, 2.01]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 4.08, 3.39, 2.01]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 4.08, 3.39, 2.01]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.08, 3.40, 2.01]).p(27),
-                row(16100, Widget::TextToggle, "KBD", [0.00, 6.09, 3.11, 1.40]).w(Size::Flex(0.45)).p(24),
-                row(16200, Widget::Spinner, "KIND", [3.11, 6.09, 6.92, 1.40]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.09, 6.93, 1.40]).items("Off · BP · Notch · Comb"),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.63]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.08, 3.39, 2.01]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [3.39, 4.08, 3.39, 2.01]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 4.08, 3.39, 2.01]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [10.17, 4.08, 3.39, 2.01]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.08, 3.40, 2.01]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16100, Widget::TextToggle, "KBD", [0.00, 6.09, 3.11, 1.40]).w(Size::Flex(0.45)).p(24).ink(Ink::Accent(Accent::Filter)),
+                row(16200, Widget::Spinner, "KIND", [3.11, 6.09, 6.92, 1.40]).p(23).ink(Ink::Accent(Accent::Filter)),
+                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.09, 6.93, 1.40]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)),
             ],
             ..Case::DEFAULT
         },
@@ -788,23 +808,23 @@ pub const REFERENCE: Reference = Reference {
             height: Some(16.0),
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.93]).margins(0.1, 0.1, 0.1, 0.1),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.38, 3.39, 2.22]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 4.38, 3.39, 2.22]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 4.38, 3.39, 2.22]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 4.38, 3.39, 2.22]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.38, 3.40, 2.22]).p(27),
-                row(16100, Widget::TextToggle, "KBD", [0.00, 6.60, 3.11, 1.40]).w(Size::Flex(0.45)).p(24),
-                row(16200, Widget::Spinner, "KIND", [3.11, 6.60, 6.92, 1.40]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.60, 6.93, 1.40]).items("Off · BP · Notch · Comb"),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.93]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Filter)),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.38, 3.39, 2.22]).p(21).ink(Ink::Accent(Accent::Filter)),
+                row(12000, Widget::Knob, "RES", [3.39, 4.38, 3.39, 2.22]).p(22).ink(Ink::Accent(Accent::Filter)),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 4.38, 3.39, 2.22]).p(25).ink(Ink::Accent(Accent::Filter)),
+                row(14000, Widget::Knob, "DECAY", [10.17, 4.38, 3.39, 2.22]).p(26).ink(Ink::Accent(Accent::Filter)),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.38, 3.40, 2.22]).p(27).ink(Ink::Accent(Accent::Filter)),
+                row(16100, Widget::TextToggle, "KBD", [0.00, 6.60, 3.11, 1.40]).w(Size::Flex(0.45)).p(24).ink(Ink::Accent(Accent::Filter)),
+                row(16200, Widget::Spinner, "KIND", [3.11, 6.60, 6.92, 1.40]).p(23).ink(Ink::Accent(Accent::Filter)),
+                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.60, 6.93, 1.40]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 3.39, 2.97]).p(11),
-                row(23000, Widget::Knob, "FINE B", [3.39, 13.02, 3.39, 2.97]).p(12),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 13.02, 3.39, 2.97]).p(14),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 13.02, 3.39, 2.97]).p(13),
-                row(26000, Widget::Knob, "NOISE", [13.56, 13.02, 3.40, 2.97]).p(20),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 3.39, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [3.39, 13.02, 3.39, 2.97]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 13.02, 3.39, 2.97]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 13.02, 3.39, 2.97]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [13.56, 13.02, 3.40, 2.97]).p(20).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -813,13 +833,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 3.39, 2.76]).p(11),
-                row(23000, Widget::Knob, "FINE B", [3.39, 4.73, 3.39, 2.76]).p(12),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 4.73, 3.39, 2.76]).p(14),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 4.73, 3.39, 2.76]).p(13),
-                row(26000, Widget::Knob, "NOISE", [13.56, 4.73, 3.40, 2.76]).p(20),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 3.39, 2.76]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [3.39, 4.73, 3.39, 2.76]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 4.73, 3.39, 2.76]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 4.73, 3.39, 2.76]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [13.56, 4.73, 3.40, 2.76]).p(20).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -828,16 +848,16 @@ pub const REFERENCE: Reference = Reference {
             tab: 2,
             rows: &[
                 STRIP,
-                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1),
-                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 4.01, 3.39, 2.08]).p(15),
-                row(33000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(17),
-                row(34000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(18),
-                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 4.01, 3.39, 2.08]).p(19),
-                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 4.01, 3.40, 2.08]),
-                row(32000, Widget::Spinner, "KIND", [0.00, 6.09, 4.24, 1.40]).p(16),
-                row(32100, Widget::Spinner, "FM RANGE", [4.24, 6.09, 4.24, 1.40]).items("x1 · x4 · x8 · x16"),
-                row(36100, Widget::Spinner, "PB RANGE", [8.48, 6.09, 4.24, 1.40]).items("1 smt · 2 smt · 7 smt · Oct"),
-                row(36200, Widget::Spinner, "MW DEST", [12.72, 6.09, 4.24, 1.40]).items("Filter · LFO · Osc. Mod."),
+                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Mod)),
+                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 4.01, 3.39, 2.08]).p(15).ink(Ink::Accent(Accent::Mod)),
+                row(33000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(17).ink(Ink::Accent(Accent::Mod)),
+                row(34000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(18).ink(Ink::Accent(Accent::Mod)),
+                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 4.01, 3.39, 2.08]).p(19).ink(Ink::Accent(Accent::Mod)),
+                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 4.01, 3.40, 2.08]).ink(Ink::Accent(Accent::Mod)),
+                row(32000, Widget::Spinner, "KIND", [0.00, 6.09, 4.24, 1.40]).p(16).ink(Ink::Accent(Accent::Mod)),
+                row(32100, Widget::Spinner, "FM RANGE", [4.24, 6.09, 4.24, 1.40]).items("x1 · x4 · x8 · x16").ink(Ink::Accent(Accent::Mod)),
+                row(36100, Widget::Spinner, "PB RANGE", [8.48, 6.09, 4.24, 1.40]).items("1 smt · 2 smt · 7 smt · Oct").ink(Ink::Accent(Accent::Mod)),
+                row(36200, Widget::Spinner, "MW DEST", [12.72, 6.09, 4.24, 1.40]).items("Filter · LFO · Osc. Mod.").ink(Ink::Accent(Accent::Mod)),
             ],
             ..Case::DEFAULT
         },
@@ -846,13 +866,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 0,
             rows: &[
                 STRIP,
-                row(41100, Widget::Display, "", [0.10, 1.35, 16.76, 3.51]).margins(0.1, 0.1, 0.1, 0.1),
-                row(41000, Widget::Knob, "LEVEL", [0.00, 4.96, 2.82, 2.53]).p(1),
-                row(42000, Widget::Knob, "PAN", [2.82, 4.96, 2.83, 2.53]).p(2),
-                row(43000, Widget::Knob, "ATK", [5.65, 4.96, 2.83, 2.53]).p(3),
-                row(44000, Widget::Knob, "DEC", [8.48, 4.96, 2.82, 2.53]).p(4),
-                row(45000, Widget::Knob, "SUS", [11.30, 4.96, 2.83, 2.53]).p(5),
-                row(46000, Widget::Knob, "REL", [14.13, 4.96, 2.82, 2.53]).p(6),
+                row(41100, Widget::Display, "", [0.10, 1.35, 16.76, 3.51]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Level)),
+                row(41000, Widget::Knob, "LEVEL", [0.00, 4.96, 2.82, 2.53]).p(1).ink(Ink::Accent(Accent::Level)),
+                row(42000, Widget::Knob, "PAN", [2.82, 4.96, 2.83, 2.53]).p(2).ink(Ink::Accent(Accent::Level)),
+                row(43000, Widget::Knob, "ATK", [5.65, 4.96, 2.83, 2.53]).p(3).ink(Ink::Accent(Accent::Level)),
+                row(44000, Widget::Knob, "DEC", [8.48, 4.96, 2.82, 2.53]).p(4).ink(Ink::Accent(Accent::Level)),
+                row(45000, Widget::Knob, "SUS", [11.30, 4.96, 2.83, 2.53]).p(5).ink(Ink::Accent(Accent::Level)),
+                row(46000, Widget::Knob, "REL", [14.13, 4.96, 2.82, 2.53]).p(6).ink(Ink::Accent(Accent::Level)),
             ],
             ..Case::DEFAULT
         },
@@ -861,14 +881,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 4,
             rows: &[
                 STRIP,
-                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1),
-                row(51000, Widget::Knob, "AMOUNT", [0.00, 4.01, 3.39, 2.08]).p(40),
-                row(52000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(36),
-                row(53000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(37),
-                row(54000, Widget::Knob, "SUSTAIN", [10.17, 4.01, 3.39, 2.08]).p(38),
-                row(55000, Widget::Knob, "RELEASE", [13.56, 4.01, 3.40, 2.08]).p(39),
-                row(56100, Widget::TextToggle, "VEL", [0.00, 6.09, 5.26, 1.40]).w(Size::Flex(0.45)).p(74),
-                row(56200, Widget::Spinner, "DEST", [5.26, 6.09, 11.70, 1.40]).p(41),
+                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Envelope)),
+                row(51000, Widget::Knob, "AMOUNT", [0.00, 4.01, 3.39, 2.08]).p(40).ink(Ink::Accent(Accent::Envelope)),
+                row(52000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(36).ink(Ink::Accent(Accent::Envelope)),
+                row(53000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(37).ink(Ink::Accent(Accent::Envelope)),
+                row(54000, Widget::Knob, "SUSTAIN", [10.17, 4.01, 3.39, 2.08]).p(38).ink(Ink::Accent(Accent::Envelope)),
+                row(55000, Widget::Knob, "RELEASE", [13.56, 4.01, 3.40, 2.08]).p(39).ink(Ink::Accent(Accent::Envelope)),
+                row(56100, Widget::TextToggle, "VEL", [0.00, 6.09, 5.26, 1.40]).w(Size::Flex(0.45)).p(74).ink(Ink::Accent(Accent::Envelope)),
+                row(56200, Widget::Spinner, "DEST", [5.26, 6.09, 11.70, 1.40]).p(41).ink(Ink::Accent(Accent::Envelope)),
             ],
             ..Case::DEFAULT
         },
@@ -877,11 +897,11 @@ pub const REFERENCE: Reference = Reference {
             tab: 5,
             rows: &[
                 STRIP,
-                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.72]).margins(0.1, 0.1, 0.1, 0.1),
-                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.17, 4.24, 2.32]).p(34),
-                row(62000, Widget::Spinner, "SHAPE", [4.24, 5.17, 4.24, 2.32]).p(33),
-                row(63000, Widget::Spinner, "DEST", [8.48, 5.17, 4.24, 2.32]).p(35),
-                row(64000, Widget::Spinner, "RATE", [12.72, 5.17, 4.24, 2.32]).p(32).items_per_column(5),
+                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.72]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
+                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.17, 4.24, 2.32]).p(34).ink(Ink::Accent(Accent::Lfo)),
+                row(62000, Widget::Spinner, "SHAPE", [4.24, 5.17, 4.24, 2.32]).p(33).ink(Ink::Accent(Accent::Lfo)),
+                row(63000, Widget::Spinner, "DEST", [8.48, 5.17, 4.24, 2.32]).p(35).ink(Ink::Accent(Accent::Lfo)),
+                row(64000, Widget::Spinner, "RATE", [12.72, 5.17, 4.24, 2.32]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT
         },
@@ -907,13 +927,13 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 SLOTS,
-                row(81200, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(47),
-                row(82111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(46).items_per_column(5),
-                row(82112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(50),
-                row(82121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(48).items_per_column(5),
-                row(82122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(49),
-                row(82200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(51),
-                row(82300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(52),
+                row(81200, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(47).ink(Ink::Accent(Accent::Fx)),
+                row(82111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(46).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(82112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(50).ink(Ink::Accent(Accent::Fx)),
+                row(82121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(48).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(82122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(49).ink(Ink::Accent(Accent::Fx)),
+                row(82200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(51).ink(Ink::Accent(Accent::Fx)),
+                row(82300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(52).ink(Ink::Accent(Accent::Fx)),
             ],
             ..Case::DEFAULT
         },
@@ -924,13 +944,13 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 SLOTS,
-                row(81300, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(54),
-                row(83111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(53).items_per_column(5),
-                row(83112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(57),
-                row(83121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(55).items_per_column(5),
-                row(83122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(56),
-                row(83200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(58),
-                row(83300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(59),
+                row(81300, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(54).ink(Ink::Accent(Accent::Fx)),
+                row(83111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(53).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(83112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(57).ink(Ink::Accent(Accent::Fx)),
+                row(83121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(55).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(83122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(56).ink(Ink::Accent(Accent::Fx)),
+                row(83200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(58).ink(Ink::Accent(Accent::Fx)),
+                row(83300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(59).ink(Ink::Accent(Accent::Fx)),
             ],
             ..Case::DEFAULT
         },
@@ -941,13 +961,13 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 SLOTS,
-                row(81400, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(61),
-                row(84111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(60).items_per_column(5),
-                row(84112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(64),
-                row(84121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(62).items_per_column(5),
-                row(84122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(63),
-                row(84200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(65),
-                row(84300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(66),
+                row(81400, Widget::Toggle, "", [0.00, 5.93, 3.39, 1.56]).p(61).ink(Ink::Accent(Accent::Fx)),
+                row(84111, Widget::Spinner, "FX KIND", [3.39, 1.25, 3.39, 3.12]).p(60).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(84112, Widget::Knob, "AMNT", [6.78, 1.25, 3.39, 3.12]).p(64).ink(Ink::Accent(Accent::Fx)),
+                row(84121, Widget::Spinner, "LFO RATE", [3.39, 4.37, 3.39, 3.12]).p(62).items_per_column(5).ink(Ink::Accent(Accent::Fx)),
+                row(84122, Widget::Spinner, "LFO SHAPE", [6.78, 4.37, 3.39, 3.12]).p(63).ink(Ink::Accent(Accent::Fx)),
+                row(84200, Widget::Knob, "X", [10.17, 1.25, 3.39, 6.24]).p(65).ink(Ink::Accent(Accent::Fx)),
+                row(84300, Widget::Knob, "Y", [13.56, 1.25, 3.40, 6.24]).p(66).ink(Ink::Accent(Accent::Fx)),
             ],
             ..Case::DEFAULT
         },

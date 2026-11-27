@@ -16,6 +16,15 @@ Architektur; diese Datei den Stand. Nach jedem Schritt hier kurz nachtragen (Sta
 - Klangbefund: GM-Synth-Oszillatoren klingen im Original-Honeydew wie im Fork „kaputt" im Vergleich zu FL Mobile
   (bit-genau identisch zum Original); Verbesserung ist Punkt 8 unten.
 
+## Farbsystem v1 (gebaut, wartet auf Handy-Test)
+
+Vorbild laut Screenshot des Besitzers (Bitwig Polymer): neutrale dunkle Flächen, je Bereich genau eine Akzentfarbe, die nur
+„Lebendiges" färbt (Titel, Kurve/Punkte, Wertbogen am Knopf); Knopfkörper neutral; verschiedene Envelopes verschiedene Farben.
+Umsetzung: `theme::Accent` (Rollen Osc gelb, Mod orange, Filter cyan, Level blau, Envelope grün, Lfo violett, Fx magenta;
+`Accent::color(&ThemeColors)` ist die Stelle für spätere Theme-Anpassung), `Ink::Accent`, `build::tint(part, accent)`,
+im GM Synth pro Seite angewendet (VOICES bleibt Kanalfarbe). Test: Kontrast ≥ 3 auf den Panelfarben des Standard-Themes.
+Noch offen: farbiger Streifen/Titel pro Seite, Modulationsring in Quellfarbe, Übertragung auf andere Module, Theme-Ableitung.
+
 ## Nächste Schritte (Reihenfolge nach Absprache)
 
 1. **Gestaltungsprinzip / Farbsystem (Bitwig-/Massive-X-artig, eigene Umsetzung).** Dunkle Flächen bleiben (Theme),

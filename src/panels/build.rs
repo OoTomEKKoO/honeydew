@@ -81,6 +81,24 @@ pub fn pager(upper: Part, lower: Part, pages: Vec<Part>) -> Part {
     })
 }
 
+/// `part` and everything in it drawn in the accent of `accent` ([`crate::theme::Accent`]): the knobs' value arcs and
+/// numbers, the menus' values, the pictures' curves. A control that sets its own ink keeps it.
+pub fn tint(mut part: Part, accent: crate::theme::Accent) -> Part {
+    match &mut part.kind {
+        PartKind::Leaf(leaf) => {
+            if leaf.ink == Ink::Channel {
+                leaf.ink = Ink::Accent(accent);
+            }
+        }
+        PartKind::HStack(children) | PartKind::VStack(children) | PartKind::Layer(children) => {
+            let taken = std::mem::take(children);
+            *children = taken.into_iter().map(|c| tint(c, accent)).collect();
+        }
+        PartKind::Pager { .. } => {}
+    }
+    part
+}
+
 pub fn layer(children: impl IntoIterator<Item = Part>) -> Part {
     part(PartKind::Layer(children.into_iter().collect()))
 }

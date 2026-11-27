@@ -239,6 +239,8 @@ pub enum Ink {
     /// The theme colour that stands out most against the channel colour: Note Echo's `Stop` label on its channel
     /// fill.
     Contrast,
+    /// A part's accent by role ([`crate::theme::Accent`]), the same colour in every module.
+    Accent(crate::theme::Accent),
 }
 
 impl Ink {
@@ -250,6 +252,7 @@ impl Ink {
             Self::ControlFill => colors.control_fill.to_color32(),
             Self::Background => colors.background.to_color32(),
             Self::Clear => Color32::TRANSPARENT,
+            Self::Accent(accent) => accent.color(colors),
             Self::Contrast => {
                 let [r, g, b, a] = channel
                     .to_srgba_unmultiplied()

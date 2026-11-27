@@ -702,4 +702,86 @@ mod tests {
         assert_eq!(RECORD_COLOR.to_color32(), Color32::from_rgb(255, 0, 0));
         assert_eq!(TRANSPARENT.to_color32(), Color32::TRANSPARENT);
     }
+
+    /// WCAG relative luminance of an sRGB colour.
+    fn luminance(c: Color32) -> f32 {
+        let lin = |v: u8| {
+            let v = f32::from(v) / 255.0;
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn the_accents_are_distinct_and_stand_out_on_the_default_theme_panels() {
+        let colors = theme_by_id(0).colors;
+        let panels = [
+            colors.module_fill.to_color32(),
+            colors.control_fill.to_color32(),
+            colors.background.to_color32(),
+        ];
+        for (i, a) in Accent::ALL.into_iter().enumerate() {
+            for panel in panels {
+                let ratio = contrast(a.color(&colors), panel);
+                assert!(ratio >= 3.0, "{a:?} on a panel: {ratio}");
+            }
+            for b in Accent::ALL.into_iter().skip(i + 1) {
+                assert!(a.color(&colors) != b.color(&colors), "{a:?} and {b:?}");
+            }
+        }
+    }
+}
+
+/// The accent of a part of a module: the colour of what lives there (a curve, a knob's value arc, a title), against the
+/// neutral dark panels. One role per job, the same in every module, so that a filter is the same colour wherever it is
+/// (the way Bitwig colours its devices): the oscillator warm yellow, the oscillator mod orange, the filter cyan, the level
+/// (amp) envelope blue, the other envelopes green, the LFO violet, the effects magenta.
+///
+/// The colours are fixed for now. [`Accent::color`] takes the theme's colours so that a later version can derive them from
+/// the theme (rotate the hues towards the theme's own, keep their lightness and saturation) without a caller changing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accent {
+    Osc,
+    Mod,
+    Filter,
+    Level,
+    Envelope,
+    Lfo,
+    Fx,
+}
+
+impl Accent {
+    /// Every role, in the order of the signal.
+    pub const ALL: [Self; 7] = [
+        Self::Level,
+        Self::Osc,
+        Self::Mod,
+        Self::Filter,
+        Self::Envelope,
+        Self::Lfo,
+        Self::Fx,
+    ];
+
+    /// The role's colour on `colors`' panels.
+    pub fn color(self, _colors: &ThemeColors) -> Color32 {
+        let [r, g, b] = match self {
+            Self::Osc => [0xF5, 0xC5, 0x42],
+            Self::Mod => [0xF5, 0x8A, 0x3C],
+            Self::Filter => [0x3C, 0xC8, 0xD9],
+            Self::Level => [0x4F, 0x9B, 0xFF],
+            Self::Envelope => [0x4F, 0xD0, 0x8C],
+            Self::Lfo => [0xA9, 0x7B, 0xF5],
+            Self::Fx => [0xE3, 0x6B, 0xB5],
+        };
+        Color32::from_rgb(r, g, b)
+    }
 }
