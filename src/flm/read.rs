@@ -1185,34 +1185,6 @@ fn locks(payload: &[u8]) -> Vec<Lock> {
     locks
 }
 
-#[cfg(test)]
-mod lock_tests {
-    use super::*;
-
-    #[test]
-    fn a_damaged_lock_chunk_reads_as_far_as_it_can() {
-        // Records that are cut short or hold no number are dropped; values clamp; the last record of a note wins.
-        let record = |tick: u32, key: u8, value: f32| {
-            let mut r = tick.to_le_bytes().to_vec();
-            r.extend([key, 0, 0, 0]);
-            r.extend(3_i32.to_le_bytes());
-            r.extend(21_i32.to_le_bytes());
-            r.extend(value.to_le_bytes());
-            r
-        };
-        let mut payload = [
-            record(10, 1, 0.5),
-            record(10, 1, 2.0),
-            record(0, 9, f32::NAN),
-        ]
-        .concat();
-        payload.extend([1, 2, 3]);
-        let locks = locks(&payload);
-        assert_eq!(locks.len(), 1);
-        assert_eq!((locks[0].tick, locks[0].key, locks[0].value), (10, 1, 1.0));
-    }
-}
-
 /// An `HDSh` (`flm::write`): 6-byte records of u32 tick, u8 shape, u8 tension. An unknown shape is skipped, a tension
 /// over 100 % is 100 %; the last record at a tick counts, and the straight line is no entry.
 fn shapes(payload: &[u8]) -> Vec<(u32, Shape)> {
@@ -1590,5 +1562,33 @@ fn settle_routing(channels: &mut [Channel], last_send_bus: &mut i32) {
         .collect();
     for channel in channels.iter_mut() {
         channel.output_bus = crate::song::output_bus(&channel.file.sends, &buses);
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn a_damaged_lock_chunk_reads_as_far_as_it_can() {
+        // Records that are cut short or hold no number are dropped; values clamp; the last record of a note wins.
+        let record = |tick: u32, key: u8, value: f32| {
+            let mut r = tick.to_le_bytes().to_vec();
+            r.extend([key, 0, 0, 0]);
+            r.extend(3_i32.to_le_bytes());
+            r.extend(21_i32.to_le_bytes());
+            r.extend(value.to_le_bytes());
+            r
+        };
+        let mut payload = [
+            record(10, 1, 0.5),
+            record(10, 1, 2.0),
+            record(0, 9, f32::NAN),
+        ]
+        .concat();
+        payload.extend([1, 2, 3]);
+        let locks = locks(&payload);
+        assert_eq!(locks.len(), 1);
+        assert_eq!((locks[0].tick, locks[0].key, locks[0].value), (10, 1, 1.0));
     }
 }
