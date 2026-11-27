@@ -18,14 +18,18 @@ use std::f64::consts::{PI, TAU as TAU_64};
 use std::sync::{Arc, OnceLock};
 
 use crate::ProcessContext;
-use crate::gm_waveshapes::{SLOTS, Spectrum, Wavetable, read, spectrum, table_index_for};
+use crate::gm_waveshapes::{
+    SLOTS, Spectrum, TABLE_LEN, Wavetable, read, spectrum, table_index_for,
+};
 use crate::instrument::Instrument;
 use crate::multifx::{Bank, Settings};
 use crate::spectrum::SpectrumProbe;
 use crate::voice::{GMSYNTH_RATE_BEATS, tempo_step};
+use crate::wavetable::{FramePair, FrameTable};
+use crate::wavetable_factory;
 
-/// Params 0–74.
-pub const PARAMS: usize = 75;
+/// Params 0–76 (75 and 76 are Honeydew's own: the wavetable positions of OSC A and B).
+pub const PARAMS: usize = 77;
 /// The panel's live values ([`Instrument::analysis`]): the LFO's value now (−1…1), its phase now (0…1), the filter's
 /// cutoff now (0…1), then the output's [`crate::spectrum::BANDS`] band levels (0…1, 20 Hz to 20 kHz).
 pub const LIVE_LFO: usize = 0;
@@ -54,7 +58,7 @@ pub const DEFAULTS: [f32; PARAMS] = [
     0.0, 0.0, 0.0, 0.0, 0.0, 1.0 / 9.0, 0.0, 0.0, 0.0, 0.5, // 41–50
     0.5, 0.5, 5.0 / 9.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 3.0 / 9.0, // 51–60
     0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, // 61–70
-    0.0, 0.0, 0.0, 0.0, // 71–74
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, // 71–76
 ];
 /// Enable is on at v ≥ 0.5; MONO (p30), AUTO (p31) and VEL (p74) at any nonzero v.
 const ENABLE: usize = 0;
@@ -138,11 +142,11 @@ pub const MOD_SOURCES: [&str; 3] = ["Off", "LFO", "EG"];
 /// The parameters a route may drive: only smooth knobs, never menus or switches (a modulated menu would flicker
 /// between its items). Level, Pan, Osc B pitch/detune/mix, Osc Mod, Noise, Cutoff, Resonance, Filter contour, EG
 /// contour, LFO amount, Choir detune/stereo, and the three FX slots' X and Y.
-pub const MOD_TARGETS: [usize; 17] = [
-    1, 2, 11, 12, 13, 15, 20, 21, 22, 27, 40, 34, 44, 45, 51, 52, 58,
+pub const MOD_TARGETS: [usize; 19] = [
+    1, 2, 11, 12, 13, 15, 20, 21, 22, 27, 40, 34, 44, 45, 51, 52, 58, POS_A, POS_B,
 ];
 /// A route's target menu: `Off` first (item 0, no route), then [`MOD_TARGETS`] in order.
-pub const MOD_TARGET_NAMES: [&str; 18] = [
+pub const MOD_TARGET_NAMES: [&str; 20] = [
     "Off",
     "Level",
     "Pan",
@@ -161,6 +165,8 @@ pub const MOD_TARGET_NAMES: [&str; 18] = [
     "FX 1 X",
     "FX 1 Y",
     "FX 2 X",
+    "Table Pos A",
+    "Table Pos B",
 ];
 
 /// One modulation route as the engine holds it.
@@ -241,13 +247,59 @@ const SEED: u32 = 0x2545_F491;
 
 /// The 29 shapes' tables, each built once per process and shared by every instance ("Shared by all instances").
 static SHAPES: [OnceLock<Arc<Wavetable>>; SLOTS] = [const { OnceLock::new() }; SLOTS];
+/// The built-in wavetables, built on first use (app thread) and shared by every instance.
+static FACTORY: [OnceLock<Arc<FrameTable>>; wavetable_factory::NAMES.len()] =
+    [const { OnceLock::new() }; wavetable_factory::NAMES.len()];
+
+/// The OSC A / B menu's items: the 29 classic shapes (0–28), then the built-in wavetables ([`TABLE_BASE`]…).
+pub const SOURCES: usize = SLOTS + wavetable_factory::NAMES.len();
+/// The menu item of the first built-in wavetable.
+pub const TABLE_BASE: usize = SLOTS;
+/// The OSC A / B position params (Honeydew's own): where in its wavetable an oscillator reads, 0…1. A classic shape
+/// ignores it.
+pub const POS_A: usize = 75;
+pub const POS_B: usize = 76;
+
+/// What an oscillator reads: one of the classic shapes (nearest point plus dither, as the original), or a wavetable
+/// that morphs with the position param and reads with interpolation.
+#[derive(Clone)]
+enum Source {
+    Shape(Arc<Wavetable>),
+    Frames(Arc<FrameTable>),
+}
+
+/// One oscillator's table for a control block's worth of samples.
+enum Reader<'a> {
+    Shape(&'a [f32; TABLE_LEN]),
+    Frames(FramePair<'a>),
+}
+
+impl Reader<'_> {
+    #[inline]
+    fn read(&self, phase: u32, dither: u32) -> f32 {
+        match self {
+            Self::Shape(table) => read(table, phase, dither),
+            Self::Frames(pair) => pair.read(phase),
+        }
+    }
+}
+
+impl Source {
+    /// The reader for band-limit `level` (a shape's table index or a wavetable's version) and `position`.
+    fn reader(&self, level: usize, position: f32) -> Reader<'_> {
+        match self {
+            Self::Shape(wave) => Reader::Shape(wave.table(level)),
+            Self::Frames(table) => Reader::Frames(table.pair(level, position)),
+        }
+    }
+}
 static FILTER_TABLE: OnceLock<FilterTable> = OnceLock::new();
 
 /// App thread: builds what a `CSTM` setting needs before [`Instrument::set_setting`] receives it on the audio thread
 /// (the OSC A / B shape). The engine calls it at build; a live setting edit calls it before sending.
 pub fn prepare_setting(key: u32, value: f32) {
     if matches!(key, WAVE_A | WAVE_B) {
-        let _ = shape(value as usize);
+        let _ = source(value as usize);
     }
 }
 
@@ -285,6 +337,64 @@ pub fn preview_cycle(slot: usize, harmonics: usize) -> Option<Vec<f32>> {
 /// Any thread: `slot`'s tables if they are built. Never builds, allocates or blocks.
 fn cached(slot: usize) -> Option<Arc<Wavetable>> {
     SHAPES.get(slot)?.get().cloned()
+}
+
+/// App thread: menu item `item` as an oscillator source, building its tables on first use; `None` past the menu.
+fn source(item: usize) -> Option<Source> {
+    if item < SLOTS {
+        return shape(item).map(Source::Shape);
+    }
+    let cell = FACTORY.get(item - TABLE_BASE)?;
+    let built = cell.get_or_init(|| {
+        let cycles = wavetable_factory::cycles(item - TABLE_BASE).expect("a built-in table");
+        Arc::new(FrameTable::from_cycles(&cycles).expect("a built-in table builds"))
+    });
+    Some(Source::Frames(Arc::clone(built)))
+}
+
+/// Any thread: menu item `item` as a source if it is built. Never builds, allocates or blocks.
+fn cached_source(item: usize) -> Option<Source> {
+    if item < SLOTS {
+        return cached(item).map(Source::Shape);
+    }
+    FACTORY
+        .get(item - TABLE_BASE)?
+        .get()
+        .cloned()
+        .map(Source::Frames)
+}
+
+/// App thread: how many frames menu item `item` has when it is a wavetable (a classic shape has none), for the pictures.
+pub fn table_frames(item: usize) -> Option<usize> {
+    match source(item)? {
+        Source::Frames(table) => Some(table.frames()),
+        Source::Shape(_) => None,
+    }
+}
+
+/// App thread: one cycle of menu item `item` as the pictures draw it, 1024 values: a classic shape with its lowest
+/// `harmonics` partials ([`preview_cycle`]), or a wavetable at `position` (0…1, the frames blended as the oscillator
+/// does). `None` past the menu.
+pub fn source_cycle(item: usize, harmonics: usize, position: f32) -> Option<Vec<f32>> {
+    match source(item)? {
+        Source::Shape(_) => preview_cycle(item, harmonics),
+        Source::Frames(table) => {
+            let pair = table.pair(0, position);
+            Some(
+                (0..TABLE_LEN)
+                    .map(|i| pair.read((i as u64 * (1 << 32) / TABLE_LEN as u64) as u32))
+                    .collect(),
+            )
+        }
+    }
+}
+
+/// App thread: wavetable `item`'s frame `frame` as `points` values over one cycle, for the pictures.
+pub fn table_outline(item: usize, frame: usize, points: usize) -> Option<Vec<f32>> {
+    match source(item)? {
+        Source::Frames(table) => Some(table.outline(frame.min(table.frames() - 1), points)),
+        Source::Shape(_) => None,
+    }
 }
 
 /// The stage coefficient a and the self-oscillation gain b by f_r on the table axis.
@@ -391,8 +501,38 @@ fn decay_rate(v: f32, sample_rate: f32) -> f32 {
 }
 
 /// Everything the block laws give, refreshed every 32 samples.
+/// Which kind of table an oscillator reads, which decides how a voice picks its band-limit level.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum SourceKind {
+    #[default]
+    Shape,
+    Frames,
+}
+
+impl SourceKind {
+    /// The band-limit level for a voice at `freq`.
+    fn level(self, freq: f32, sample_rate: f32) -> usize {
+        match self {
+            Self::Shape => table_index_for(freq, sample_rate),
+            Self::Frames => FrameTable::level_for(freq, sample_rate),
+        }
+    }
+
+    fn of(source: &Option<Source>) -> Self {
+        match source {
+            Some(Source::Frames(_)) => Self::Frames,
+            _ => Self::Shape,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct Control {
+    /// What OSC A and B read ([`SourceKind`]) and their wavetable positions ([`POS_A`], [`POS_B`]).
+    source_a: SourceKind,
+    source_b: SourceKind,
+    pos_a: f32,
+    pos_b: f32,
     amp: Rates,
     filter_env: Rates,
     mod_env: Rates,
@@ -519,8 +659,8 @@ impl Voice {
         let pitch = self.p + c.offset + self.slide[0] + c.eg_pitch * eg + c.lfo_pitch;
         let f_a = 220.0 * ((pitch - 57.0) / 12.0).exp2();
         let f_b = f_a * c.ratio_b;
-        self.table_a = table_index_for(f_a, sample_rate);
-        self.table_b = table_index_for(f_b, sample_rate);
+        self.table_a = c.source_a.level(f_a, sample_rate);
+        self.table_b = c.source_b.level(f_b, sample_rate);
         // Sync: A runs at f_A·2^m′, m′ = clamp(v15 + MW, 0, 1) + (2v19 − 1)·E_mod + mods, unclamped.
         let sync = if c.mod_kind == SYNC {
             (c.sync_base + c.mod_contour * self.mod_env.e + c.eg_mod * eg + c.lfo_mod_now).exp2()
@@ -545,14 +685,17 @@ impl Voice {
     fn render(
         &mut self,
         c: &Control,
-        (wave_a, wave_b): (&Wavetable, &Wavetable),
+        (wave_a, wave_b): (&Source, &Source),
         filter: &FilterTable,
         dither: &[u32],
         lfo: &[f32],
         amount: &[f32],
         bus: &mut [[f32; BLOCK]; 2],
     ) {
-        let (table_a, table_b) = (wave_a.table(self.table_a), wave_b.table(self.table_b));
+        let (table_a, table_b) = (
+            wave_a.reader(self.table_a, c.pos_a),
+            wave_b.reader(self.table_b, c.pos_b),
+        );
         // VEL scales the EG depth for the Filter and Osc. Mod. destinations only.
         let velocity = (self.velocity + self.slide[2]).clamp(0.0, 1.0);
         let depth = if c.velocity_depth { velocity } else { 1.0 };
@@ -569,14 +712,14 @@ impl Voice {
             let (fm, ring) = (active && c.mod_kind == FM, active && c.mod_kind == RING);
             let (mut left, mut right, mut b0) = (0.0, 0.0, 0.0);
             for k in 0..c.copies {
-                let b = read(table_b, self.phase_b[k], dither);
+                let b = table_b.read(self.phase_b[k], dither);
                 // FM: A is read at φ_A + (B + 1)·m cycles.
                 let phase_a = if fm {
                     self.phase_a[k].wrapping_add(cycles((b + 1.0) * m * c.fm_scale))
                 } else {
                     self.phase_a[k]
                 };
-                let mut a = read(table_a, phase_a, dither);
+                let mut a = table_a.read(phase_a, dither);
                 if ring {
                     a *= 1.0 + 3.0 * m * b;
                 }
@@ -764,8 +907,8 @@ pub struct GmSynth {
     /// The previously played key, where the next note's glide starts (none after reset).
     last_key: Option<u8>,
     serial: u64,
-    wave_a: Option<Arc<Wavetable>>,
-    wave_b: Option<Arc<Wavetable>>,
+    wave_a: Option<Source>,
+    wave_b: Option<Source>,
     filter: &'static FilterTable,
     /// Channel Pitch Bend v and mod wheel (CC #1) v.
     bend: f32,
@@ -829,8 +972,8 @@ impl GmSynth {
             held: [false; 128],
             last_key: None,
             serial: 0,
-            wave_a: shape(DEFAULT_SHAPE),
-            wave_b: shape(DEFAULT_SHAPE),
+            wave_a: shape(DEFAULT_SHAPE).map(Source::Shape),
+            wave_b: shape(DEFAULT_SHAPE).map(Source::Shape),
             filter: FILTER_TABLE.get_or_init(FilterTable::build),
             bend: 0.5,
             wheel: 0.0,
@@ -1044,6 +1187,10 @@ impl GmSynth {
         c.filter_kind = ((2.0 * v[23]) as u8).min(2);
         c.filter_extra = self.filter_extra;
         c.drive = self.filter_drive;
+        c.source_a = SourceKind::of(&self.wave_a);
+        c.source_b = SourceKind::of(&self.wave_b);
+        c.pos_a = v[POS_A];
+        c.pos_b = v[POS_B];
         c.fm_scale = FM_SCALES[self.fm_range];
         c.sample_rate = sr;
 
@@ -1645,14 +1792,14 @@ impl Instrument for GmSynth {
             WAVE_A | WAVE_B => {
                 let slot = value as usize;
                 debug_assert!(
-                    slot >= SLOTS || cached(slot).is_some(),
+                    slot >= SOURCES || cached_source(slot).is_some(),
                     "prepare_setting builds slot {slot} first"
                 );
                 *if key == WAVE_A {
                     &mut self.wave_a
                 } else {
                     &mut self.wave_b
-                } = cached(slot);
+                } = cached_source(slot);
             }
             PB_RANGE => self.pb_range = PB_RANGES[(value as usize).min(PB_RANGES.len() - 1)],
             MW_AMOUNT => self.mw_amount = value.clamp(0.0, 1.0),
@@ -2355,6 +2502,90 @@ mod tests {
             peak < 3.0 * plain_peak.max(1e-3),
             "{peak} against {plain_peak}"
         );
+    }
+
+    /// A held note's first 4000 samples with OSC A on menu item `item` (the position `pos`), with B silent (the default balance is A alone).
+    fn table_run(item: usize, pos: f32, key: u8) -> Vec<f32> {
+        let mut synth = GmSynth::new(RATE);
+        prepare_setting(WAVE_A, item as f32);
+        synth.set_setting(WAVE_A, item as f32);
+        synth.set_parameter(POS_A, pos);
+        synth.set_parameter(21, 1.0); // CUTOFF open
+        synth.note_on(key, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 4000], vec![0.0; 4000]);
+        synth.process(&mut left, &mut right, STOPPED);
+        left
+    }
+
+    #[test]
+    fn a_wavetable_plays_and_its_position_changes_the_sound() {
+        let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
+        let item = TABLE_BASE; // Sine to Saw
+        let (dark, bright) = (table_run(item, 0.0, 48), table_run(item, 1.0, 48));
+        assert!(dark.iter().chain(&bright).all(|x| x.is_finite()));
+        assert!(rms(&dark) > 0.01 && rms(&bright) > 0.01, "both play");
+        assert_ne!(dark, bright, "the position changes the wave");
+        // The sine end is smoother than the saw end: less change from one sample to the next.
+        let rough = |v: &[f32]| v.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(v);
+        assert!(
+            rough(&dark) < rough(&bright),
+            "{} {}",
+            rough(&dark),
+            rough(&bright)
+        );
+        // A classic shape ignores the position.
+        assert_eq!(
+            table_run(SINE_SHAPE, 0.0, 48),
+            table_run(SINE_SHAPE, 0.9, 48)
+        );
+    }
+
+    const SINE_SHAPE: usize = crate::gm_waveshapes::SINE;
+
+    #[test]
+    fn every_menu_item_builds_and_a_missing_one_silences() {
+        for item in 0..SOURCES {
+            prepare_setting(WAVE_A, item as f32);
+            assert!(cached_source(item).is_some(), "item {item}");
+        }
+        assert!(cached_source(SOURCES).is_none());
+        assert!(table_frames(TABLE_BASE).is_some_and(|n| n > 1));
+        assert!(table_frames(0).is_none(), "a classic shape is no table");
+        assert_eq!(table_outline(TABLE_BASE, 3, 64).map(|v| v.len()), Some(64));
+    }
+
+    #[test]
+    fn a_high_note_on_a_wavetable_stays_free_of_aliasing() {
+        // A bright saw-like table at a high note: the band limit leaves no energy above Nyquist to fold back. The
+        // output of a pure band-limited wave has energy only at the harmonics, so its sample-to-sample change stays
+        // that of a few harmonics (no spikes).
+        let out = table_run(TABLE_BASE + 1, 0.0, 100);
+        assert!(out.iter().all(|x| x.is_finite()));
+        let peak = out.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        let step = out
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max);
+        assert!(step < 2.0 * peak, "no spikes: {step} against {peak}");
+    }
+
+    #[test]
+    fn a_route_can_drive_the_table_position() {
+        let pos = MOD_TARGETS.iter().position(|&p| p == POS_A).unwrap() as f32 + 1.0;
+        let run = |amount: f32| {
+            let mut synth = GmSynth::new(RATE);
+            prepare_setting(WAVE_A, TABLE_BASE as f32);
+            synth.set_setting(WAVE_A, TABLE_BASE as f32);
+            synth.set_parameter(32, 0.0); // fast LFO
+            synth.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+            synth.set_setting(MOD_BASE + MOD_TARGET, pos);
+            synth.set_setting(MOD_BASE + MOD_AMOUNT, amount);
+            synth.note_on(48, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 6000], vec![0.0; 6000]);
+            synth.process(&mut l, &mut r, STOPPED);
+            l
+        };
+        assert_ne!(run(1.0), run(0.5), "a route at the centre is no modulation");
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.

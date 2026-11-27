@@ -215,9 +215,11 @@ mod tests {
         assert_eq!(bytes.len(), 1324);
         let preset = read_flgsynth(&bytes).unwrap();
         assert_eq!((preset.type_id, preset.instance_id), (2, 0));
-        assert_eq!(preset.params.len(), 75);
+        // The 75 of the original, then Honeydew's two table positions at their defaults.
+        assert_eq!(preset.params.len(), 77);
         assert_eq!(preset.params[0], 1.0);
-        assert_eq!(preset.params[1..], values[..]);
+        assert_eq!(preset.params[1..75], values[..]);
+        assert_eq!(preset.params[75..], [0.0, 0.0]);
         // Menu order: Rhodes 13, Square 22, any case.
         assert_eq!(waves(&preset), [13, 22]);
         // `Devils Horn` is Double Spike's file (2); an unknown or empty path is Beast (0), the default.

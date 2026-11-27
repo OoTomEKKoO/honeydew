@@ -15,7 +15,7 @@ use crate::panels::{ModuleInstance, PanelState};
 use crate::theme::Accent;
 use crate::ui::{UiCtx, widgets};
 // The waveshapes of the OSC `A` and `B` spinners, kept with the preset, not as params.
-use crate::params::GMSYNTH_WAVESHAPES as WAVESHAPES;
+use crate::params::GMSYNTH_SOURCES as WAVESHAPES;
 
 const PB_RANGE: &[&str] = &["1 smt", "2 smt", "7 smt", "Oct"];
 const MW_DEST: &[&str] = &["Filter", "LFO", "Osc. Mod."];
@@ -57,6 +57,8 @@ const MOD_TARGETS: &[&str] = &[
     "FX 1 X",
     "FX 1 Y",
     "FX 2 X",
+    "Table Pos A",
+    "Table Pos B",
 ];
 
 /// One route of the MATRIX page: its source and target menus stacked beside a big bipolar amount knob (centre = 0).
@@ -137,13 +139,13 @@ pub fn panel() -> Option<Panel> {
                 page([
                     line([
                         spinner(21100, "A")
-                            .items(WAVESHAPES)
-                            .items_per_column(10)
+                            .items(WAVESHAPES.as_slice())
+                            .items_per_column(11)
                             .draw(wave_a)
                             .margins(0.1, 0.1, 0.1, 0.1),
                         spinner(21200, "B")
-                            .items(WAVESHAPES)
-                            .items_per_column(10)
+                            .items(WAVESHAPES.as_slice())
+                            .items_per_column(11)
                             .draw(wave_b)
                             .margins(0.1, 0.1, 0.1, 0.1),
                     ])
@@ -155,6 +157,9 @@ pub fn panel() -> Option<Panel> {
                             knob(24000, "PHASE B").p(14),
                             knob(25000, "BALANCE").p(13),
                             knob(26000, "NOISE").p(20),
+                            // Honeydew's own: where a wavetable is read, per oscillator.
+                            knob(27000, "POS A").p(75),
+                            knob(28000, "POS B").p(76),
                         ],
                         1.5,
                     ),
@@ -449,7 +454,9 @@ fn wave_display(
     let param = |p: usize| module.params.get(p).copied().unwrap_or(0.5).clamp(0.0, 1.0);
     let shape = |key: u32| {
         let slot = *state.settings.get(&key)?;
-        honeydew_audio::gmsynth::preview_cycle(slot as usize, DISPLAY_HARMONICS)
+        // A wavetable is drawn where its position param has it.
+        let pos = param(if key == 21200 { 76 } else { 75 }).clamp(0.0, 1.0);
+        honeydew_audio::gmsynth::source_cycle(slot as usize, DISPLAY_HARMONICS, pos)
     };
     let slot = state
         .settings
@@ -463,6 +470,19 @@ fn wave_display(
     };
     // BALANCE: A takes 1 − |2v − 1| of it, B 2v − 1 (negative: B upside down).
     let balance = 2.0 * param(13) - 1.0;
+    // A wavetable is drawn as its stack of frames in perspective, the oscillator's own frame in front of them.
+    if let Some(item) = slot.filter(|&i| i >= honeydew_audio::gmsynth::TABLE_BASE) {
+        let position = param(if b { 76 } else { 75 });
+        let share = if b {
+            balance.abs()
+        } else {
+            1.0 - balance.abs()
+        };
+        let ink = ink.gamma_multiply(0.25 + 0.75 * share);
+        ridge(ui, cx, inner, item, position, &own, ink);
+        caption(ui, cx, inner, if b { "B" } else { "A" }, slot, ink);
+        return;
+    }
     let (share, sign) = if b {
         (balance.abs(), balance.signum())
     } else {
@@ -508,6 +528,84 @@ fn wave_display(
     painter.add(Shape::mesh(mesh));
     painter.add(Shape::line(points, Stroke::new(t * 1.25, ink)));
     caption(ui, cx, inner, if b { "B" } else { "A" }, slot, ink);
+}
+
+/// How many of a wavetable's frames the 3D picture stacks, at most.
+const RIDGE_LINES: usize = 14;
+/// Points per line of the 3D picture.
+const RIDGE_POINTS: usize = 72;
+
+/// A wavetable's 3D picture in `inner`: its frames (at most [`RIDGE_LINES`], evenly spread) as lines stacked in
+/// perspective, the first in front at the bottom and the last at the back, each higher, smaller and fainter than the one
+/// before; and the oscillator's own frame, `own` (one cycle at the `position`), as a bright line with a soft fill at its
+/// depth. The oscillator reads it there, so the picture moves with the POS knob, its automation and its modulation.
+fn ridge(ui: &Ui, cx: &UiCtx, inner: Rect, item: usize, position: f32, own: &[f32], ink: Color32) {
+    let Some(frames) = honeydew_audio::gmsynth::table_frames(item) else {
+        return;
+    };
+    let t = cx.m.t();
+    let painter = ui.painter();
+    let (depth_x, depth_y) = (inner.width() * 0.14, inner.height() * 0.40);
+    let base_w = inner.width() - depth_x - 2.0 * t;
+    let floor = inner.bottom() - inner.height() * 0.10;
+    // Where depth `z` (0 front, 1 back) puts a point at `u` across the cycle with `v` of the line's height.
+    let amp0 = inner.height() * 0.24;
+    let place = |z: f32, u: f32, v: f32| {
+        pos2(
+            inner.left() + t + depth_x * z + base_w * u * (1.0 - 0.15 * z),
+            floor - depth_y * z - amp0 * (1.0 - 0.3 * z) * v,
+        )
+    };
+    let lines = frames.min(RIDGE_LINES);
+    let outlines: Vec<Vec<f32>> = (0..lines)
+        .filter_map(|k| {
+            let frame = (k * (frames - 1) + (lines - 1) / 2) / (lines - 1).max(1);
+            honeydew_audio::gmsynth::table_outline(item, frame, RIDGE_POINTS)
+        })
+        .collect();
+    let peak = (outlines.iter().flatten())
+        .chain(own)
+        .fold(1e-6_f32, |m, v| m.max(v.abs()));
+    let line = |z: f32, values: &mut dyn Iterator<Item = f32>| -> Vec<Pos2> {
+        let values: Vec<f32> = values.collect();
+        let n = (values.len() - 1).max(1) as f32;
+        (values.iter().enumerate())
+            .map(|(i, v)| place(z, i as f32 / n, v / peak))
+            .collect()
+    };
+    // The frames from the back to the front, each fainter the further back.
+    for (k, outline) in outlines.iter().enumerate().rev() {
+        let z = k as f32 / (lines - 1).max(1) as f32;
+        let mut values = outline.iter().copied().chain(outline.first().copied());
+        let points = line(z, &mut values);
+        painter.add(Shape::line(
+            points,
+            Stroke::new(t * 0.8, ink.gamma_multiply(0.14 + 0.36 * (1.0 - z))),
+        ));
+    }
+    // The oscillator's own frame at the position's depth.
+    let z = if position.is_finite() {
+        position.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let n = own.len().max(2);
+    let step = (n / RIDGE_POINTS).max(1);
+    let mut values = (0..=RIDGE_POINTS).map(|i| own[(i * step) % n]);
+    let points = line(z, &mut values);
+    let mut mesh = Mesh::default();
+    let fill = ink.gamma_multiply(0.22);
+    let ground = |p: Pos2| pos2(p.x, floor - depth_y * z);
+    for pair in points.windows(2) {
+        let base = mesh.vertices.len() as u32;
+        for corner in [ground(pair[0]), pair[0], pair[1], ground(pair[1])] {
+            mesh.colored_vertex(corner, fill);
+        }
+        mesh.add_triangle(base, base + 1, base + 2);
+        mesh.add_triangle(base, base + 2, base + 3);
+    }
+    painter.add(Shape::mesh(mesh));
+    painter.add(Shape::line(points, Stroke::new(t * 1.6, ink)));
 }
 
 /// The display's caption in its top left corner, the oscillator and its shape's name, and a small chevron at the top
@@ -984,7 +1082,7 @@ const SLOTS: Row = row(
 #[cfg(test)]
 const SHAPES: &str = "Beast · Crunch · Double Spike · Digital · Dirt · Electro · Filth · Fox · Funky · Grubby · Keys · \
     Liquid · Ogre · Rhodes · Saw Mean · Saw Retro · Saw · Silk · Sine · Smooth Sub · Square Retro · Square Smooth · \
-    Square · Strat · String · Throat · Triangle · Troll · Vocal";
+    Square · Strat · String · Throat · Triangle · Troll · Vocal · Sine to Saw · Saw to Square · Pulse Width · Vowels · Harmonic Sweep · FM Sweep · Hard Sync · Organ Bars · Bit Crush · Phase Scramble · Hollow Bell · Reed to Brass";
 
 #[cfg(test)]
 #[rustfmt::skip]
@@ -1030,13 +1128,15 @@ pub const REFERENCE: Reference = Reference {
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 3.39, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
-                row(23000, Widget::Knob, "FINE B", [3.39, 13.02, 3.39, 2.97]).p(12).ink(Ink::Accent(Accent::Osc)),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 13.02, 3.39, 2.97]).p(14).ink(Ink::Accent(Accent::Osc)),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 13.02, 3.39, 2.97]).p(13).ink(Ink::Accent(Accent::Osc)),
-                row(26000, Widget::Knob, "NOISE", [13.56, 13.02, 3.40, 2.97]).p(20).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 2.42, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [2.42, 13.02, 2.42, 2.97]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [4.84, 13.02, 2.42, 2.97]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [7.26, 13.02, 2.43, 2.97]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [9.69, 13.02, 2.42, 2.97]).p(20).ink(Ink::Accent(Accent::Osc)),
+                row(27000, Widget::Knob, "POS A", [12.11, 13.02, 2.42, 2.97]).p(75).ink(Ink::Accent(Accent::Osc)),
+                row(28000, Widget::Knob, "POS B", [14.53, 13.02, 2.43, 2.97]).p(76).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -1045,13 +1145,15 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 3.39, 2.76]).p(11).ink(Ink::Accent(Accent::Osc)),
-                row(23000, Widget::Knob, "FINE B", [3.39, 4.73, 3.39, 2.76]).p(12).ink(Ink::Accent(Accent::Osc)),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 4.73, 3.39, 2.76]).p(14).ink(Ink::Accent(Accent::Osc)),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 4.73, 3.39, 2.76]).p(13).ink(Ink::Accent(Accent::Osc)),
-                row(26000, Widget::Knob, "NOISE", [13.56, 4.73, 3.40, 2.76]).p(20).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 2.42, 2.76]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [2.42, 4.73, 2.42, 2.76]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [4.84, 4.73, 2.42, 2.76]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [7.26, 4.73, 2.43, 2.76]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [9.69, 4.73, 2.42, 2.76]).p(20).ink(Ink::Accent(Accent::Osc)),
+                row(27000, Widget::Knob, "POS A", [12.11, 4.73, 2.42, 2.76]).p(75).ink(Ink::Accent(Accent::Osc)),
+                row(28000, Widget::Knob, "POS B", [14.53, 4.73, 2.43, 2.76]).p(76).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -1145,16 +1247,16 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(66000, Widget::Spinner, "FROM", [0.06, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66001, Widget::Spinner, "TO", [0.06, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66001, Widget::Spinner, "TO", [0.06, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
                 row(66002, Widget::Knob, "AMOUNT", [4.70, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
                 row(66010, Widget::Spinner, "FROM", [8.54, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66011, Widget::Spinner, "TO", [8.54, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66011, Widget::Spinner, "TO", [8.54, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
                 row(66012, Widget::Knob, "AMOUNT", [13.18, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
                 row(66020, Widget::Spinner, "FROM", [0.06, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66021, Widget::Spinner, "TO", [0.06, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66021, Widget::Spinner, "TO", [0.06, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
                 row(66022, Widget::Knob, "AMOUNT", [4.70, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
                 row(66030, Widget::Spinner, "FROM", [8.54, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66031, Widget::Spinner, "TO", [8.54, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66031, Widget::Spinner, "TO", [8.54, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
                 row(66032, Widget::Knob, "AMOUNT", [13.18, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT

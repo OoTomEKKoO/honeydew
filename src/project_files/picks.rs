@@ -450,7 +450,7 @@ pub(crate) mod tests {
         let mut gm = ModuleInstance::new(2, 3);
         let bytes = flgsynth("Devils Horn", "Saw", &floats);
         load_pick(&mut gm, Path::new("Gen.flgsynth"), &bytes, None).unwrap();
-        assert_eq!(&gm.params[1..], &floats[..]);
+        assert_eq!(&gm.params[1..75], &floats[..]);
         assert!(gm.file.custom_data.is_some(), "the shapes");
         // Into another module, or cut short: an error, and nothing changes.
         let before = ModuleInstance::new(0, 5);

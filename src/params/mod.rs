@@ -39,7 +39,7 @@ pub use effects_24_51::snap_echo_delay;
 pub(crate) use effects_24_51::{arp_pattern, arp_steps};
 /// Half Time, Honeydew's own effect (`honeydew_audio::half_time`).
 pub use half_time::MODULE as HALF_TIME;
-pub(crate) use instruments::GMSYNTH_WAVESHAPES;
+pub(crate) use instruments::{GMSYNTH_SOURCES, GMSYNTH_WAVESHAPES};
 /// Lemon Studio's reverb and limiter, Honeydew's own effects (`honeydew_audio::lemon`).
 pub use lemon::MODULES as LEMON_MODULES;
 /// The Modulator, Honeydew's own effect (`honeydew_audio::modulator`).

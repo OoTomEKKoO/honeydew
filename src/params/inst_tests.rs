@@ -26,7 +26,8 @@ const OVERVIEW: [(u16, &str, &str, usize, &[&str]); 8] = [
         2,
         "GMSynth",
         "GMS",
-        75,
+        // 75 in the original, then Honeydew's two wavetable positions.
+        77,
         &["FILTER", "OSC", "MOD", "LEVEL", "EG", "LFO", "VOICES", "FX"],
     ),
     (
@@ -237,8 +238,14 @@ fn rows_names_defaults_and_kinds() {
             ),
         }
     }
-    // Every instrument param but the SoundFont Player's has a row.
-    let tabled: usize = OVERVIEW.iter().filter(|o| o.0 != 52).map(|o| o.3).sum();
+    // Every instrument param but the SoundFont Player's has a row, and but the GMSynth's two wavetable positions
+    // (Honeydew's own: params 75 and 76).
+    let tabled: usize = OVERVIEW
+        .iter()
+        .filter(|o| o.0 != 52)
+        .map(|o| o.3)
+        .sum::<usize>()
+        - 2;
     assert_eq!(ROWS.len(), tabled);
     for &(id, idx, want) in KIND_NOTES {
         let row = ROWS.iter().find(|r| (r.0, r.1) == (id, idx));

@@ -215,8 +215,8 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 /// `honeydew_audio::gmsynth::MOD_BASE`), each written only once it is not its default, so a song that never
 /// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
-    f("waveA", 0, 21100, Index(29), 0.0),
-    f("waveB", 4, 21200, Index(29), 0.0),
+    f("waveA", 0, 21100, Index(41), 0.0),
+    f("waveB", 4, 21200, Index(41), 0.0),
     f("PB RANGE", 8, 36100, Items(4), 1.0),
     f("MW AMOUNT", 12, 37000, Norm, 0.5),
     f("MW DEST", 16, 36200, Trunc(3), 2.0),
@@ -228,16 +228,16 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("LFO SYNC", 40, 65400, Index(15), 0.0),
     f("LFO KEY", 44, 65500, Index(2), 0.0),
     f("MOD1 SOURCE", 48, 66000, Index(3), 0.0),
-    f("MOD1 TARGET", 52, 66001, Index(18), 0.0),
+    f("MOD1 TARGET", 52, 66001, Index(20), 0.0),
     f("MOD1 AMOUNT", 56, 66002, Norm, 0.5),
     f("MOD2 SOURCE", 60, 66010, Index(3), 0.0),
-    f("MOD2 TARGET", 64, 66011, Index(18), 0.0),
+    f("MOD2 TARGET", 64, 66011, Index(20), 0.0),
     f("MOD2 AMOUNT", 68, 66012, Norm, 0.5),
     f("MOD3 SOURCE", 72, 66020, Index(3), 0.0),
-    f("MOD3 TARGET", 76, 66021, Index(18), 0.0),
+    f("MOD3 TARGET", 76, 66021, Index(20), 0.0),
     f("MOD3 AMOUNT", 80, 66022, Norm, 0.5),
     f("MOD4 SOURCE", 84, 66030, Index(3), 0.0),
-    f("MOD4 TARGET", 88, 66031, Index(18), 0.0),
+    f("MOD4 TARGET", 88, 66031, Index(20), 0.0),
     f("MOD4 AMOUNT", 92, 66032, Norm, 0.5),
     f("FILTER DRIVE", 96, 16400, Norm, 0.0),
 ];
@@ -1036,6 +1036,17 @@ mod tests {
         }
     }
 
+    /// A wavetable item (29 and up) is kept in the oscillator's `waveA` / `waveB` field and reads back; one past the
+    /// menu clamps to the last item.
+    #[test]
+    fn gmsynth_wavetable_items_round_trip() {
+        let blob = cstm_from_settings(2, &map([(21100, 35.0), (21200, 40.0)]), None).unwrap();
+        let back = settings_from_cstm(2, &blob).unwrap();
+        assert_eq!((back[&21100], back[&21200]), (35.0, 40.0));
+        let blob = cstm_from_settings(2, &map([(21100, 400.0)]), None).unwrap();
+        assert_eq!(settings_from_cstm(2, &blob).unwrap()[&21100], 40.0);
+    }
+
     /// A modulation route grows the blob to hold it, keeps the older bytes, and reads back.
     #[test]
     fn gmsynth_mod_routes_grow_the_blob_and_read_back() {
@@ -1297,7 +1308,7 @@ mod tests {
         let blob = cstm_from_settings(2, &map([(21100, 99.0), (37000, -1.0)]), None).unwrap();
         assert_eq!(
             (blob[..4].to_vec(), blob[12..16].to_vec()),
-            (28u32.to_le_bytes().to_vec(), le(&[0.0]))
+            (40u32.to_le_bytes().to_vec(), le(&[0.0]))
         );
     }
 
@@ -1363,7 +1374,7 @@ mod tests {
             ] {
                 if let Some(s) = settings_from_cstm(type_id, &blob) {
                     assert!(
-                        s.values().all(|v| (0.0..=28.0).contains(v)),
+                        s.values().all(|v| (0.0..=40.0).contains(v)),
                         "type {type_id} {s:?}"
                     );
                 }

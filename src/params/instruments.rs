@@ -262,6 +262,14 @@ const GMS_PITCH_B: Display = Display::Stepped {
     text: |v| (gmsynth::pitch_b_step(v) as i32).to_string(),
 };
 
+/// The OSC `A` and `B` menus' items in order: the 29 waveshapes, then Honeydew's built-in wavetables (items 29…): the
+/// `CSTM` `waveA` / `waveB` values.
+pub(crate) static GMSYNTH_SOURCES: std::sync::LazyLock<Vec<&'static str>> =
+    std::sync::LazyLock::new(|| {
+        let tables = honeydew_audio::wavetable_factory::NAMES;
+        GMSYNTH_WAVESHAPES.iter().chain(&tables).copied().collect()
+    });
+
 /// GMSynth's waveshapes, the OSC `A` and `B` menus in index order 0–28: the `CSTM` `waveA` /
 /// `waveB` values, not params. The panel's spinners and the `.flgsynth` reader name them so.
 pub(crate) const GMSYNTH_WAVESHAPES: &[&str] = &[
@@ -439,6 +447,9 @@ const GMSYNTH: &[P] = &[
     P::cont("", 0.0, DB_12),                                 // 73
     // The EG page's VEL toggle has no name.
     P::toggle("", 0.0), // 74
+    // Honeydew's own (wavetables): where OSC A and B read in a wavetable, 0 to 100 %. A classic shape ignores them.
+    P::cont("Table Pos A", 0.0, Display::linear(0.0, 100.0, 0, " %")), // 75
+    P::cont("Table Pos B", 0.0, Display::linear(0.0, 100.0, 0, " %")), // 76
 ];
 
 // ---- 19 Transistor Bass ----
