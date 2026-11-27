@@ -221,37 +221,35 @@ pub fn spinner_grid(
     response
 }
 
-/// The compact look: a rounded box in `controlFill`, the label small above the value, a small chevron at the right
-/// that says a tap opens the list. The box is at most two `U` high and centred in the control's rect.
+/// The compact look: one slim line, a rounded box in `controlFill` with the label small at the left, the value at the
+/// right and a small chevron at the end that says a tap opens the list. The box is at most 1.5 `U` high, centred in the
+/// control's rect.
 fn paint_compact(ui: &Ui, cx: &UiCtx, c: &Control, item: &str) {
     let (m, colors) = (cx.m, &cx.theme.colors);
-    let height = c.rect.height().min(m.u(2.0));
+    let height = c.rect.height().min(m.u(1.5));
     let face = Rect::from_center_size(
         c.rect.center(),
         vec2((c.rect.width() - m.t() * 4.0).max(0.0), height),
     );
     let painter = ui.painter();
     painter.rect_filled(face, m.t() * 3.0, colors.control_fill.to_color32());
-    let value_y = if c.label.is_empty() {
-        face.center().y
-    } else {
+    if !c.label.is_empty() {
         painter.text(
-            pos2(face.center().x, face.top() + m.t() * 1.5),
-            Align2::CENTER_TOP,
+            pos2(face.left() + m.t() * 4.0, face.center().y),
+            Align2::LEFT_CENTER,
             c.label,
             m.font_id(c.label_font),
             c.channel.gamma_multiply(0.7),
         );
-        face.center().y + m.t() * 3.0
-    };
+    }
     painter.text(
-        pos2(face.center().x, value_y),
-        Align2::CENTER_CENTER,
+        pos2(face.right() - m.t() * 11.0, face.center().y),
+        Align2::RIGHT_CENTER,
         item,
         m.font_id(VALUE_FONT),
         c.channel,
     );
-    let at = pos2(face.right() - m.t() * 5.0, face.center().y + m.t() * 2.0);
+    let at = pos2(face.right() - m.t() * 5.0, face.center().y + m.t());
     let w = m.t() * 2.0;
     painter.add(Shape::line(
         vec![

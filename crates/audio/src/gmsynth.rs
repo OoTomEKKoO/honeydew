@@ -1088,80 +1088,92 @@ pub enum EnvelopeKind {
     Eg,
 }
 
-/// An envelope as the engine runs it, for a display.
+/// An envelope for a display: its curve over a width split into fixed shares per stage (so a 2 ms attack and a 20 s
+/// decay are both readable), and the real times for the labels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnvelopePreview {
-    /// 0…1 at evenly spaced times over [`Self::seconds`].
+    /// 0…1, evenly spaced over the display's width.
     pub values: Vec<f32>,
-    /// The note-off's place in `values` as a fraction (0…1); `None` for an envelope that ignores note-off.
-    pub gate_off: Option<f32>,
-    /// The time the values span, in seconds.
-    pub seconds: f32,
+    /// Where the stages end as fractions of the width: attack, decay, sustain hold, release. An envelope that ignores
+    /// note-off (the filter's, the osc mod's) ends at its decay and has no hold or release: its last three are 1.
+    pub ends: [f32; 4],
+    /// The real time of the attack, of the decay until it has settled, and of the release, in seconds.
+    pub seconds: [f32; 3],
+    /// Whether there is a note-off (a release).
+    pub releases: bool,
+    /// The sustain level the decay settles at.
+    pub sustain: f32,
 }
 
-/// The envelope `kind` of params `v`, run through the engine's own [`Envelope`] at 1 kHz and sampled at `points` evenly
-/// spaced times: the key is held until the level settles (and a little longer), then let go. The window fits the
-/// envelope, so a 5 ms and a 5 s one both fill the display.
+/// The share of the display each stage takes, with and without a release.
+const ENV_SHARES: [f32; 4] = [0.22, 0.30, 0.13, 0.35];
+const ENV_SHARES_NO_RELEASE: [f32; 4] = [0.28, 0.72, 0.0, 0.0];
+/// A decay or release is drawn until it is within 0.5 % of where it goes (ln 200 time constants).
+const ENV_SETTLE: f32 = 5.298_317;
+
+/// The envelope `kind` of params `v`: the engine's own one-pole curves (attack aims at 5.0 and ends at 1, decay and
+/// release are exponentials), drawn stage by stage over fixed shares of `points` evenly spaced points, with the real
+/// stage times beside them. The times follow the engine's laws (`attack_rate`, `decay_rate`, the release rates).
 pub fn envelope_preview(kind: EnvelopeKind, v: &[f32], points: usize) -> EnvelopePreview {
-    const RATE: f32 = 1_000.0;
-    const LIMIT: usize = 20_000;
     let get = |i: usize| v.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
-    let clamp_rate = |k: f32| k.clamp(0.0, 1.0);
-    let rates = |attack: usize, decay: usize, sustain: Option<(usize, usize)>| Rates {
-        attack: clamp_rate(attack_rate(get(attack), RATE)),
-        decay: clamp_rate(decay_rate(get(decay), RATE)),
-        sustain: sustain.map_or(0.0, |(s, _)| get(s) * get(s)),
-        release: sustain.map_or(0.0, |(_, r)| {
-            let t = if kind == EnvelopeKind::Eg {
-                200.0 * get(r).powi(4) + 0.001
+    // The time constants in seconds: k = RATE_SCALE/(sr·t) per sample, so τ = t/RATE_SCALE.
+    // Attack: k = RATE_SCALE/(sr·100v⁴), and it ends where 5·(1 − e^(−kn)) = 1, at kn = ln 1.25.
+    let attack_s = |v: f32| 0.223_143_55 * 100.0 * v.powi(4) / RATE_SCALE;
+    let (attack, decay, sustain, release) = match kind {
+        EnvelopeKind::Level => (get(3), get(4), get(5) * get(5), Some(get(6) + 0.001)),
+        EnvelopeKind::Filter => (get(25), get(26), 0.0, None),
+        EnvelopeKind::Mod => (get(17), get(18), 0.0, None),
+        EnvelopeKind::Eg => (
+            get(36),
+            get(37),
+            get(38) * get(38),
+            Some(200.0 * get(39).powi(4) + 0.001),
+        ),
+    };
+    let seconds = [
+        attack_s(attack),
+        ENV_SETTLE * (200.0 * decay.powi(7) + 0.001) / RATE_SCALE,
+        release.map_or(0.0, |t| ENV_SETTLE * t / RATE_SCALE),
+    ];
+    let shares = if release.is_some() {
+        ENV_SHARES
+    } else {
+        ENV_SHARES_NO_RELEASE
+    };
+    let mut ends = [0.0; 4];
+    let mut total = 0.0;
+    for (end, share) in ends.iter_mut().zip(shares) {
+        total += share;
+        *end = total;
+    }
+    if release.is_none() {
+        ends = [ends[0], 1.0, 1.0, 1.0];
+    }
+    // The attack runs 0 → 1 as 5·(1 − 0.8^u) over u in 0…1 (0.8 = 1 − 1/5: the level at which it ends).
+    let n = points.max(2);
+    let values = (0..n)
+        .map(|i| {
+            let f = i as f32 / (n - 1) as f32;
+            if f <= ends[0] {
+                let u = if ends[0] > 0.0 { f / ends[0] } else { 1.0 };
+                (ATTACK_TARGET * (1.0 - (1.0 - 1.0 / ATTACK_TARGET).powf(u))).min(1.0)
+            } else if f <= ends[1] {
+                let u = (f - ends[0]) / (ends[1] - ends[0]);
+                sustain + (1.0 - sustain) * (-ENV_SETTLE * u).exp()
+            } else if f <= ends[2] || release.is_none() {
+                sustain
             } else {
-                get(r) + 0.001
-            };
-            clamp_rate(RATE_SCALE / (RATE * t))
-        }),
-    };
-    let (rates, release) = match kind {
-        EnvelopeKind::Level => (rates(3, 4, Some((5, 6))), true),
-        EnvelopeKind::Filter => (rates(25, 26, None), false),
-        EnvelopeKind::Mod => (rates(17, 18, None), false),
-        EnvelopeKind::Eg => (rates(36, 37, Some((38, 39))), true),
-    };
-    let mut env = Envelope::default();
-    env.restart();
-    let mut curve = Vec::new();
-    let sustain = rates.sustain;
-    // Held until it has settled to its sustain (0 for the filter's and mod's), then a little longer.
-    let mut settled = 0;
-    while curve.len() < LIMIT {
-        let e = env.step(&rates);
-        curve.push(e);
-        settled = if (e - sustain).abs() < 0.01 && env.stage == Stage::Decay {
-            settled + 1
-        } else {
-            0
-        };
-        if settled > 5 {
-            break;
-        }
-    }
-    let hold = (curve.len() / 4).max(40);
-    curve.extend(std::iter::repeat_n(env.e, hold));
-    let gate_off = release.then_some(curve.len());
-    if release {
-        env.stage = Stage::Release;
-        while curve.len() < LIMIT * 2 && env.e > 0.005 {
-            curve.push(env.step(&rates));
-        }
-        curve.push(0.0);
-    }
-    let n = curve.len();
-    let values = (0..points.max(2))
-        .map(|i| curve[(i * (n - 1)) / (points.max(2) - 1)])
+                let u = (f - ends[2]) / (ends[3] - ends[2]);
+                (sustain * (-ENV_SETTLE * u).exp() * (1.0 - u)).max(0.0)
+            }
+        })
         .collect();
     EnvelopePreview {
         values,
-        gate_off: gate_off.map(|g| g as f32 / n as f32),
-        seconds: n as f32 / RATE,
+        ends,
+        seconds,
+        releases: release.is_some(),
+        sustain,
     }
 }
 
@@ -1561,6 +1573,44 @@ mod tests {
         }
     }
 
+    /// The time-domain gain of `ladder` kind `kind` with `feedback` for a small sine of `w` rad/sample.
+    fn gain_with_feedback(kind: u8, a: f32, feedback: f32, w: f32) -> f32 {
+        let mut y = [0.0; STAGES];
+        let (mut input, mut output) = (0.0, 0.0);
+        for n in 0..60_000 {
+            let x = 0.01 * (w * n as f32).sin();
+            let out = ladder(&mut y, x, a, feedback, kind);
+            if n >= 40_000 {
+                input += x * x;
+                output += out * out;
+            }
+        }
+        (output / input).sqrt()
+    }
+
+    #[test]
+    fn the_filter_response_shows_the_resonance_the_engine_has() {
+        let table = FILTER_TABLE.get_or_init(FilterTable::build);
+        let c = 0.4;
+        let (a, b) = table.at(c);
+        let wc = -(1.0 - a).ln();
+        let rate = 44_100.0_f64;
+        for res in [0.3_f32, 0.65, 0.9] {
+            for (kind, name) in [(0u8, "LP 12"), (1, "LP 24"), (2, "HP")] {
+                for ratio in [0.3_f32, 0.6, 0.9, 1.0, 1.1, 1.5, 3.0] {
+                    let w = wc * ratio;
+                    let measured = 20.0 * gain_with_feedback(kind, a, res * b, w).log10();
+                    let hz = (f64::from(w) * rate / std::f64::consts::TAU) as f32;
+                    let shown = filter_response(c, res, kind, 0, &[hz])[0];
+                    assert!(
+                        (measured - shown).abs() < 1.5,
+                        "{name} res {res} at {ratio}×: {measured} dB measured, {shown} dB shown"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn resonance_raises_the_peak_and_the_comb_has_teeth() {
         let hz: Vec<f32> = (0..200)
@@ -1581,26 +1631,99 @@ mod tests {
         assert!((cutoff_of_hz(cutoff_hz(0.37)) - 0.37).abs() < 1e-4);
     }
 
+    /// How many samples the engine's own envelope takes, at `RATE`, to leave a stage.
+    fn engine_stage_seconds(
+        rates: &Rates,
+        from: Stage,
+        start: f32,
+        until: impl Fn(f32) -> bool,
+    ) -> f32 {
+        const RATE: f32 = 48_000.0;
+        let mut env = Envelope {
+            e: start,
+            stage: from,
+        };
+        let mut n = 0;
+        while !until(env.e) && n < 20_000_000 {
+            env.step(rates);
+            n += 1;
+        }
+        n as f32 / RATE
+    }
+
     #[test]
-    fn envelope_previews_run_the_engines_envelope() {
-        // A new GMSynth: LEVEL attack 0, decay 1, sustain 1, release 0.2.
+    fn envelope_previews_take_the_times_the_engines_envelope_takes() {
+        const RATE: f32 = 48_000.0;
         let mut v = DEFAULTS;
-        let level = envelope_preview(EnvelopeKind::Level, &v, 100);
-        assert_eq!(level.values.len(), 100);
-        assert!(level.values.iter().all(|x| (0.0..=1.0).contains(x)));
-        assert!(level.gate_off.is_some());
-        assert!(*level.values.last().unwrap() < 0.05, "released to silence");
-        // The filter envelope ignores note-off.
+        v[3] = 0.5; // attack
+        v[4] = 0.4; // decay
+        v[5] = 0.5; // sustain (squared: 0.25)
+        v[6] = 0.3; // release
+        let preview = envelope_preview(EnvelopeKind::Level, &v, 200);
+        let rates = Rates {
+            attack: attack_rate(0.5, RATE),
+            decay: decay_rate(0.4, RATE),
+            sustain: 0.25,
+            release: RATE_SCALE / (RATE * (0.3 + 0.001)),
+        };
+        let attack = engine_stage_seconds(&rates, Stage::Attack, 0.0, |e| e >= 1.0);
+        let decay = engine_stage_seconds(&rates, Stage::Decay, 1.0, |e| {
+            (e - 0.25).abs() < 0.75 * 0.005
+        });
+        let release = engine_stage_seconds(&rates, Stage::Release, 0.25, |e| e < 0.25 * 0.005);
+        let near = |shown: f32, engine: f32| (shown - engine).abs() <= 0.03 * engine + 0.0005;
+        assert!(
+            near(preview.seconds[0], attack),
+            "{} {attack}",
+            preview.seconds[0]
+        );
+        assert!(
+            near(preview.seconds[1], decay),
+            "{} {decay}",
+            preview.seconds[1]
+        );
+        assert!(
+            near(preview.seconds[2], release),
+            "{} {release}",
+            preview.seconds[2]
+        );
+        assert!(preview.releases && preview.values.len() == 200);
+        assert!(preview.values.iter().all(|x| (0.0..=1.0).contains(x)));
+        assert_eq!(preview.values[0], 0.0);
+        assert!((preview.sustain - 0.25).abs() < 1e-6);
+        // The attack reaches 1, the decay settles at the sustain, the release ends at 0.
+        let peak = preview.values.iter().cloned().fold(0.0, f32::max);
+        assert!((peak - 1.0).abs() < 0.02, "{peak}");
+        assert_eq!(*preview.values.last().unwrap(), 0.0);
+    }
+
+    #[test]
+    fn the_filter_and_mod_envelopes_ignore_note_off_and_every_attack_shows() {
+        let mut v = DEFAULTS;
         v[26] = 0.3;
         let filter = envelope_preview(EnvelopeKind::Filter, &v, 100);
-        assert_eq!(filter.gate_off, None);
-        assert!(filter.values[0] <= filter.values.iter().cloned().fold(0.0, f32::max));
-        // A slower decay makes a longer window.
-        let slow = {
-            v[26] = 0.6;
-            envelope_preview(EnvelopeKind::Filter, &v, 100).seconds
-        };
-        assert!(slow > filter.seconds, "{slow} {}", filter.seconds);
+        assert!(!filter.releases);
+        assert_eq!(filter.ends[1], 1.0);
+        // A 1 ms attack and a 5 s one both take the same share of the width: the curve rises over it.
+        for attack in [0.0, 0.05, 0.9] {
+            v[25] = attack;
+            let shown = envelope_preview(EnvelopeKind::Filter, &v, 100);
+            let at = (shown.ends[0] * 99.0) as usize;
+            assert!(
+                shown.values[at] >= 0.95,
+                "attack {attack}: {}",
+                shown.values[at]
+            );
+            assert!(
+                shown.values[at / 2] < shown.values[at],
+                "attack {attack} rises"
+            );
+        }
+        // A longer decay is a longer time, on the same width.
+        let short = envelope_preview(EnvelopeKind::Filter, &v, 100).seconds[1];
+        v[26] = 0.8;
+        let long = envelope_preview(EnvelopeKind::Filter, &v, 100).seconds[1];
+        assert!(long > short);
     }
 
     #[test]

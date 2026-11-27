@@ -1,4 +1,5 @@
-//! The GMSynth panel (type 2), card 9.5 U: eight tabs, and on `FX` one page per effect slot.
+//! The GMSynth panel (type 2), card 9.5 U: eight tabs in the order of the signal (LEVEL, OSC, MOD, FILTER, EG, LFO, VOICES,
+//! FX), and on `FX` one page per effect slot.
 //! Ids follow the instrument convention, tab·10000 plus the `#n` digits padded to four: FILTER #6.1 is 16100.
 
 use eframe::egui::{
@@ -22,7 +23,7 @@ const FM_RANGES: &[&str] = &["x1", "x4", "x8", "x16"];
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
 const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
-const TABS: &str = "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX";
+const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX";
 
 /// A page of rows of controls, top to bottom.
 fn page(rows: impl IntoIterator<Item = Part>) -> Part {
@@ -34,40 +35,44 @@ fn line(parts: impl IntoIterator<Item = Part>) -> Part {
     hstack(parts)
 }
 
-/// The height of a row of compact menus and switches, in U.
-const MENUS: f32 = 2.0;
+/// The height of the slim row of compact menus and switches under the knobs, in U.
+const MENUS: f32 = 1.4;
+
+/// A knob row's share of a page's height, against its picture's.
+fn knobs(parts: impl IntoIterator<Item = Part>, share: f32) -> Part {
+    line(parts).h(Size::Flex(share))
+}
+
+/// A picture of what the page's controls do, in a well of its own.
+fn picture(id: u32, draw: crate::panels::Draw, share: f32) -> Part {
+    line([display(id).draw(draw).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(share))
+}
 
 pub fn panel() -> Option<Panel> {
-    // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own. Every
-    // value is a knob; the menus are compact, in a low row of their own; the filter, the envelopes and the LFO each
-    // have a picture of what they do.
+    // Pages under two tab strips: with two pages at once (a tall portrait card) each has a strip of its own. A picture
+    // on top of what it shows, the knobs under it (input below, as on a phone's keyboard), and the menus and switches in
+    // a slim row at the foot.
     Some(Panel::new(pager(
         tabs(0, TABS).h(Size::U(1.25)),
         tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
         vec![
+            // LEVEL
             page([
-                line([display(12100)
-                    .draw(filter_display)
-                    .margins(0.1, 0.1, 0.1, 0.1)])
-                .h(Size::Flex(1.5)),
-                line([
-                    knob(11000, "CUTOFF").p(21),
-                    knob(12000, "RES").p(22),
-                    knob(13000, "ATTACK").p(25),
-                    knob(14000, "DECAY").p(26),
-                    knob(15000, "AMOUNT").p(27),
-                ])
-                .h(Size::Flex(1.3)),
-                line([
-                    toggle(16100, "KBD").p(24),
-                    spinner(16200, "KIND").p(23).compact(),
-                    // Honeydew's own extra filter types.
-                    spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
-                ])
-                .h(Size::U(MENUS)),
+                picture(41100, env_level, 2.2),
+                knobs(
+                    [
+                        knob(41000, "LEVEL").p(1),
+                        knob(42000, "PAN").p(2),
+                        knob(43000, "ATK").p(3),
+                        knob(44000, "DEC").p(4),
+                        knob(45000, "SUS").p(5),
+                        knob(46000, "REL").p(6),
+                    ],
+                    1.5,
+                ),
             ]),
+            // OSC: each oscillator is its own menu, a live picture of the wave whose tap opens the shape list.
             page([
-                // Each oscillator is its own menu: a live picture of the wave, and a tap opens the shape list.
                 line([
                     spinner(21100, "A")
                         .items(WAVESHAPES)
@@ -80,25 +85,31 @@ pub fn panel() -> Option<Panel> {
                         .draw(wave_b)
                         .margins(0.1, 0.1, 0.1, 0.1),
                 ])
-                .h(Size::Flex(2.2)),
-                line([
-                    knob(22000, "PITCH B").p(11),
-                    knob(23000, "FINE B").p(12),
-                    knob(24000, "PHASE B").p(14),
-                    knob(25000, "BALANCE").p(13),
-                    knob(26000, "NOISE").p(20),
-                ]),
+                .h(Size::Flex(1.9)),
+                knobs(
+                    [
+                        knob(22000, "PITCH B").p(11),
+                        knob(23000, "FINE B").p(12),
+                        knob(24000, "PHASE B").p(14),
+                        knob(25000, "BALANCE").p(13),
+                        knob(26000, "NOISE").p(20),
+                    ],
+                    1.5,
+                ),
             ]),
+            // MOD
             page([
-                line([display(31100).draw(env_mod).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(1.2)),
-                line([
-                    knob(31000, "MOD. AMNT").p(15),
-                    knob(33000, "ATTACK").p(17),
-                    knob(34000, "DECAY").p(18),
-                    knob(35000, "EG AMOUNT").p(19),
-                    knob(37000, "MW AMOUNT").default(0.5),
-                ])
-                .h(Size::Flex(1.5)),
+                picture(31100, env_mod, 2.0),
+                knobs(
+                    [
+                        knob(31000, "MOD. AMNT").p(15),
+                        knob(33000, "ATTACK").p(17),
+                        knob(34000, "DECAY").p(18),
+                        knob(35000, "EG AMOUNT").p(19),
+                        knob(37000, "MW AMOUNT").default(0.5),
+                    ],
+                    1.5,
+                ),
                 line([
                     spinner(32000, "KIND").p(16).compact(),
                     // Honeydew's own: how far FM modulates (`x1` is the original depth).
@@ -115,56 +126,73 @@ pub fn panel() -> Option<Panel> {
                 ])
                 .h(Size::U(MENUS)),
             ]),
+            // FILTER
             page([
-                line([display(41100).draw(env_level).margins(0.1, 0.1, 0.1, 0.1)])
-                    .h(Size::Flex(1.3)),
+                picture(12100, filter_display, 2.4),
+                knobs(
+                    [
+                        knob(11000, "CUTOFF").p(21),
+                        knob(12000, "RES").p(22),
+                        knob(13000, "ATTACK").p(25),
+                        knob(14000, "DECAY").p(26),
+                        knob(15000, "AMOUNT").p(27),
+                    ],
+                    1.7,
+                ),
                 line([
-                    knob(41000, "LEVEL").p(1),
-                    knob(42000, "PAN").p(2),
-                    knob(43000, "ATK").p(3),
-                    knob(44000, "DEC").p(4),
-                    knob(45000, "SUS").p(5),
-                    knob(46000, "REL").p(6),
+                    text_toggle(16100, "KBD").p(24).w(Size::Flex(0.45)),
+                    spinner(16200, "KIND").p(23).compact(),
+                    // Honeydew's own extra filter types.
+                    spinner(16300, "EXTRA").items(FILTER_EXTRA).compact(),
                 ])
-                .h(Size::Flex(1.4)),
+                .h(Size::U(MENUS)),
             ]),
+            // EG
             page([
-                line([display(51100).draw(env_eg).margins(0.1, 0.1, 0.1, 0.1)]).h(Size::Flex(1.2)),
+                picture(51100, env_eg, 2.0),
+                knobs(
+                    [
+                        knob(51000, "AMOUNT").p(40),
+                        knob(52000, "ATTACK").p(36),
+                        knob(53000, "DECAY").p(37),
+                        knob(54000, "SUSTAIN").p(38),
+                        knob(55000, "RELEASE").p(39),
+                    ],
+                    1.5,
+                ),
                 line([
-                    knob(51000, "AMOUNT").p(40),
-                    knob(52000, "ATTACK").p(36),
-                    knob(53000, "DECAY").p(37),
-                    knob(54000, "SUSTAIN").p(38),
-                    knob(55000, "RELEASE").p(39),
-                ])
-                .h(Size::Flex(1.5)),
-                line([
-                    toggle(56100, "VEL").p(74),
+                    text_toggle(56100, "VEL").p(74).w(Size::Flex(0.45)),
                     spinner(56200, "DEST").p(41).compact(),
                 ])
                 .h(Size::U(MENUS)),
             ]),
+            // LFO
             page([
-                line([display(61100).draw(lfo_display).margins(0.1, 0.1, 0.1, 0.1)])
-                    .h(Size::Flex(1.4)),
-                line([
-                    knob(61000, "AMOUNT").p(34),
-                    spinner(62000, "SHAPE").p(33).compact(),
-                    spinner(63000, "DEST").p(35).compact(),
-                    spinner(64000, "RATE").p(32).items_per_column(5).compact(),
-                ])
-                .h(Size::Flex(1.2)),
+                picture(61100, lfo_display, 2.2),
+                knobs(
+                    [
+                        knob(61000, "AMOUNT").p(34),
+                        spinner(62000, "SHAPE").p(33).compact(),
+                        spinner(63000, "DEST").p(35).compact(),
+                        spinner(64000, "RATE").p(32).items_per_column(5).compact(),
+                    ],
+                    1.3,
+                ),
             ]),
+            // VOICES
             page([
+                knobs(
+                    [
+                        knob(71000, "TRNSP").p(28),
+                        knob(72000, "SLIDE").p(29),
+                        knob(73000, "CHOIR DTN").p(44),
+                        knob(74000, "CHOIR STR").p(45),
+                    ],
+                    1.0,
+                ),
                 line([
-                    knob(71000, "TRNSP").p(28),
-                    knob(72000, "SLIDE").p(29),
-                    knob(73000, "CHOIR DTN").p(44),
-                    knob(74000, "CHOIR STR").p(45),
-                ]),
-                line([
-                    toggle(75100, "MONO").p(30),
-                    toggle(75200, "AUTO").p(31),
+                    text_toggle(75100, "MONO").p(30).w(Size::Flex(0.6)),
+                    text_toggle(75200, "AUTO").p(31).w(Size::Flex(0.6)),
                     spinner(76100, "VOICES").p(42).compact(),
                     spinner(76200, "SCALE").p(43).compact(),
                 ])
@@ -177,8 +205,8 @@ pub fn panel() -> Option<Panel> {
 
 /// Partials the wave displays draw: enough for a saw's or a square's corners, few enough for no ringing.
 const DISPLAY_HARMONICS: usize = 96;
-/// Cycles of oscillator A a wave display shows.
-const DISPLAY_CYCLES: f32 = 2.0;
+/// Cycles of an oscillator a wave display shows: one whole cycle, so that no cycle is cut off by the display's edge.
+const DISPLAY_CYCLES: f32 = 1.0;
 /// The share of its half height the wave's peak reaches: the curve and its stroke stay inside the well.
 const DISPLAY_FILL: f32 = 0.72;
 /// A curve point per device pixel, at most this many.
@@ -284,7 +312,8 @@ fn wave_display(
 ) {
     widgets::display_area(ui, cx, rect);
     let t = cx.m.t();
-    let inner = rect.shrink(3.0 * t);
+    // Room at the sides too, so that the curve never runs into the display's edge.
+    let inner = rect.shrink2(vec2(7.0 * t, 3.0 * t));
     if inner.width() < 4.0 || inner.height() < 4.0 {
         return;
     }
@@ -417,7 +446,7 @@ fn curve_points(cx: &UiCtx, inner: Rect) -> usize {
 
 /// The frequency range the filter display covers, in Hz, and the gain range in dB.
 const FILTER_HZ: (f32, f32) = (20.0, 20_000.0);
-const FILTER_DB: (f32, f32) = (-42.0, 30.0);
+const FILTER_DB: (f32, f32) = (-30.0, 24.0);
 
 /// The filter display: its gain over frequency on a log axis, as the engine's filter does it (KIND, EXTRA, CUTOFF and
 /// RES), with the cutoff drawn as a line and the resonance as a ring where the two meet. Dragging moves them: the
@@ -514,8 +543,19 @@ fn filter_display(
     changed
 }
 
-/// The envelope display of `kind`: the curve the engine's envelope runs for these params, over a time axis that fits
-/// it, with the note-off marked and the length of the window at the bottom right.
+/// A time for a stage label: `0 ms`, `120 ms`, `1.2 s`, `12 s`.
+fn seconds_text(s: f32) -> String {
+    if s < 0.9995 {
+        format!("{:.0} ms", s * 1000.0)
+    } else if s < 9.95 {
+        format!("{:.1} s", s)
+    } else {
+        format!("{:.0} s", s)
+    }
+}
+
+/// The envelope display of `kind`: the engine's curves stage by stage, each over a fixed share of the width so that a
+/// 2 ms attack and a 20 s decay both read, with a faint line between the stages and each stage's real time at its top.
 fn env_display(
     ui: &Ui,
     cx: &UiCtx,
@@ -530,7 +570,9 @@ fn env_display(
     let t = cx.m.t();
     let preview =
         honeydew_audio::gmsynth::envelope_preview(kind, &module.params, curve_points(cx, inner));
-    let top = inner.top() + inner.height() * 0.08;
+    // Room above for the times, and a little under the curve's foot and to its sides.
+    let (left, right) = (inner.left() + 3.0 * t, inner.right() - 3.0 * t);
+    let (top, bottom) = (inner.top() + inner.height() * 0.2, inner.bottom() - 2.0 * t);
     let last = (preview.values.len() - 1) as f32;
     let points: Vec<Pos2> = preview
         .values
@@ -538,33 +580,47 @@ fn env_display(
         .enumerate()
         .map(|(i, v)| {
             pos2(
-                inner.left() + inner.width() * i as f32 / last,
-                inner.bottom() - v * (inner.bottom() - top),
+                left + (right - left) * i as f32 / last,
+                bottom - v * (bottom - top),
             )
         })
         .collect();
     let painter = ui.painter();
     let text = cx.theme.colors.text.to_color32();
-    if let Some(off) = preview.gate_off {
-        let x = inner.left() + inner.width() * off;
+    let x_of = |f: f32| left + (right - left) * f;
+    let stages: &[(f32, f32, &str, f32)] = if preview.releases {
+        &[
+            (0.0, preview.ends[0], "A", preview.seconds[0]),
+            (preview.ends[0], preview.ends[1], "D", preview.seconds[1]),
+            (preview.ends[2], preview.ends[3], "R", preview.seconds[2]),
+        ]
+    } else {
+        &[
+            (0.0, preview.ends[0], "A", preview.seconds[0]),
+            (preview.ends[0], preview.ends[1], "D", preview.seconds[1]),
+        ]
+    };
+    // The line between stages, at the start of each stage after the first (and of the hold).
+    let mut bounds = vec![preview.ends[0]];
+    if preview.releases {
+        bounds.extend([preview.ends[1], preview.ends[2]]);
+    }
+    for f in bounds {
         painter.line_segment(
-            [pos2(x, inner.top()), pos2(x, inner.bottom())],
-            Stroke::new(t * 0.5, text.gamma_multiply(0.25)),
+            [pos2(x_of(f), inner.top()), pos2(x_of(f), inner.bottom())],
+            Stroke::new(t * 0.5, text.gamma_multiply(0.12)),
         );
     }
-    let window = if preview.seconds < 1.0 {
-        format!("{:.0} ms", preview.seconds * 1000.0)
-    } else {
-        format!("{:.1} s", preview.seconds)
-    };
-    painter.text(
-        pos2(inner.right() - t, inner.top() + t),
-        Align2::RIGHT_TOP,
-        window,
-        cx.m.font_id(FontSize::Pt8),
-        text.gamma_multiply(0.5),
-    );
-    fill_curve(ui, points, inner.bottom(), ink, t * 1.25);
+    for &(from, _, name, seconds) in stages {
+        painter.text(
+            pos2(x_of(from) + 2.0 * t, inner.top() + t),
+            Align2::LEFT_TOP,
+            format!("{name} {}", seconds_text(seconds)),
+            cx.m.font_id(FontSize::Pt8),
+            text.gamma_multiply(0.55),
+        );
+    }
+    fill_curve(ui, points, bottom, ink, t * 1.25);
 }
 
 /// The LFO display: two cycles of its shape, as tall as its AMOUNT (below the middle line when the amount is negative).
@@ -681,7 +737,7 @@ fn fx() -> Part {
 const STRIP: Row = row(
     0,
     Widget::Tabs,
-    "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX",
+    "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX",
     [0.0, 0.0, 16.96, 1.25],
 )
 .h(Size::U(1.25));
@@ -710,43 +766,45 @@ pub const REFERENCE: Reference = Reference {
     cases: &[
         Case {
             name: "FILTER",
+            tab: 3,
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.07]).margins(0.1, 0.1, 0.1, 0.1),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 3.52, 3.39, 1.97]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 3.52, 3.39, 1.97]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 3.52, 3.39, 1.97]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 3.52, 3.39, 1.97]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 3.52, 3.40, 1.97]).p(27),
-                row(16100, Widget::Toggle, "KBD", [0.00, 5.49, 5.65, 2.00]).p(24),
-                row(16200, Widget::Spinner, "KIND", [5.65, 5.49, 5.65, 2.00]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [11.30, 5.49, 5.66, 2.00]).items("Off · BP · Notch · Comb"),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.63]).margins(0.1, 0.1, 0.1, 0.1),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.08, 3.39, 2.01]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 4.08, 3.39, 2.01]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 4.08, 3.39, 2.01]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 4.08, 3.39, 2.01]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.08, 3.40, 2.01]).p(27),
+                row(16100, Widget::TextToggle, "KBD", [0.00, 6.09, 3.11, 1.40]).w(Size::Flex(0.45)).p(24),
+                row(16200, Widget::Spinner, "KIND", [3.11, 6.09, 6.92, 1.40]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.09, 6.93, 1.40]).items("Off · BP · Notch · Comb"),
             ],
             ..Case::DEFAULT
         },
         Case {
             name: "FILTER over OSC (two pages)",
+            tab: 3,
             lower: Some(1),
             height: Some(16.0),
             rows: &[
                 STRIP,
-                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.34]).margins(0.1, 0.1, 0.1, 0.1),
-                row(11000, Widget::Knob, "CUTOFF", [0.00, 3.79, 3.39, 2.21]).p(21),
-                row(12000, Widget::Knob, "RES", [3.39, 3.79, 3.39, 2.21]).p(22),
-                row(13000, Widget::Knob, "ATTACK", [6.78, 3.79, 3.39, 2.21]).p(25),
-                row(14000, Widget::Knob, "DECAY", [10.17, 3.79, 3.39, 2.21]).p(26),
-                row(15000, Widget::Knob, "AMOUNT", [13.56, 3.79, 3.40, 2.21]).p(27),
-                row(16100, Widget::Toggle, "KBD", [0.00, 6.00, 5.65, 2.00]).p(24),
-                row(16200, Widget::Spinner, "KIND", [5.65, 6.00, 5.65, 2.00]).p(23),
-                row(16300, Widget::Spinner, "EXTRA", [11.30, 6.00, 5.66, 2.00]).items("Off · BP · Notch · Comb"),
-                row(1, Widget::Tabs, "FILTER · OSC · MOD · LEVEL · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 4.44]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 4.44]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 13.89, 3.39, 2.11]).p(11),
-                row(23000, Widget::Knob, "FINE B", [3.39, 13.89, 3.39, 2.11]).p(12),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 13.89, 3.39, 2.11]).p(14),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 13.89, 3.39, 2.11]).p(13),
-                row(26000, Widget::Knob, "NOISE", [13.56, 13.89, 3.40, 2.11]).p(20),
+                row(12100, Widget::Display, "", [0.10, 1.35, 16.76, 2.93]).margins(0.1, 0.1, 0.1, 0.1),
+                row(11000, Widget::Knob, "CUTOFF", [0.00, 4.38, 3.39, 2.22]).p(21),
+                row(12000, Widget::Knob, "RES", [3.39, 4.38, 3.39, 2.22]).p(22),
+                row(13000, Widget::Knob, "ATTACK", [6.78, 4.38, 3.39, 2.22]).p(25),
+                row(14000, Widget::Knob, "DECAY", [10.17, 4.38, 3.39, 2.22]).p(26),
+                row(15000, Widget::Knob, "AMOUNT", [13.56, 4.38, 3.40, 2.22]).p(27),
+                row(16100, Widget::TextToggle, "KBD", [0.00, 6.60, 3.11, 1.40]).w(Size::Flex(0.45)).p(24),
+                row(16200, Widget::Spinner, "KIND", [3.11, 6.60, 6.92, 1.40]).p(23),
+                row(16300, Widget::Spinner, "EXTRA", [10.03, 6.60, 6.93, 1.40]).items("Off · BP · Notch · Comb"),
+                row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 3.39, 2.97]).p(11),
+                row(23000, Widget::Knob, "FINE B", [3.39, 13.02, 3.39, 2.97]).p(12),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 13.02, 3.39, 2.97]).p(14),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 13.02, 3.39, 2.97]).p(13),
+                row(26000, Widget::Knob, "NOISE", [13.56, 13.02, 3.40, 2.97]).p(20),
             ],
             ..Case::DEFAULT
         },
@@ -755,13 +813,13 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 4.09]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 4.09]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 5.54, 3.39, 1.95]).p(11),
-                row(23000, Widget::Knob, "FINE B", [3.39, 5.54, 3.39, 1.95]).p(12),
-                row(24000, Widget::Knob, "PHASE B", [6.78, 5.54, 3.39, 1.95]).p(14),
-                row(25000, Widget::Knob, "BALANCE", [10.17, 5.54, 3.39, 1.95]).p(13),
-                row(26000, Widget::Knob, "NOISE", [13.56, 5.54, 3.40, 1.95]).p(20),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 3.39, 2.76]).p(11),
+                row(23000, Widget::Knob, "FINE B", [3.39, 4.73, 3.39, 2.76]).p(12),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 4.73, 3.39, 2.76]).p(14),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 4.73, 3.39, 2.76]).p(13),
+                row(26000, Widget::Knob, "NOISE", [13.56, 4.73, 3.40, 2.76]).p(20),
             ],
             ..Case::DEFAULT
         },
@@ -770,31 +828,31 @@ pub const REFERENCE: Reference = Reference {
             tab: 2,
             rows: &[
                 STRIP,
-                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 1.68]).margins(0.1, 0.1, 0.1, 0.1),
-                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 3.13, 3.39, 2.36]).p(15),
-                row(33000, Widget::Knob, "ATTACK", [3.39, 3.13, 3.39, 2.36]).p(17),
-                row(34000, Widget::Knob, "DECAY", [6.78, 3.13, 3.39, 2.36]).p(18),
-                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 3.13, 3.39, 2.36]).p(19),
-                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 3.13, 3.40, 2.36]),
-                row(32000, Widget::Spinner, "KIND", [0.00, 5.49, 4.24, 2.00]).p(16),
-                row(32100, Widget::Spinner, "FM RANGE", [4.24, 5.49, 4.24, 2.00]).items("x1 · x4 · x8 · x16"),
-                row(36100, Widget::Spinner, "PB RANGE", [8.48, 5.49, 4.24, 2.00]).items("1 smt · 2 smt · 7 smt · Oct"),
-                row(36200, Widget::Spinner, "MW DEST", [12.72, 5.49, 4.24, 2.00]).items("Filter · LFO · Osc. Mod."),
+                row(31100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1),
+                row(31000, Widget::Knob, "MOD. AMNT", [0.00, 4.01, 3.39, 2.08]).p(15),
+                row(33000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(17),
+                row(34000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(18),
+                row(35000, Widget::Knob, "EG AMOUNT", [10.17, 4.01, 3.39, 2.08]).p(19),
+                row(37000, Widget::Knob, "MW AMOUNT", [13.56, 4.01, 3.40, 2.08]),
+                row(32000, Widget::Spinner, "KIND", [0.00, 6.09, 4.24, 1.40]).p(16),
+                row(32100, Widget::Spinner, "FM RANGE", [4.24, 6.09, 4.24, 1.40]).items("x1 · x4 · x8 · x16"),
+                row(36100, Widget::Spinner, "PB RANGE", [8.48, 6.09, 4.24, 1.40]).items("1 smt · 2 smt · 7 smt · Oct"),
+                row(36200, Widget::Spinner, "MW DEST", [12.72, 6.09, 4.24, 1.40]).items("Filter · LFO · Osc. Mod."),
             ],
             ..Case::DEFAULT
         },
         Case {
             name: "LEVEL",
-            tab: 3,
+            tab: 0,
             rows: &[
                 STRIP,
-                row(41100, Widget::Display, "", [0.10, 1.35, 16.76, 2.80]).margins(0.1, 0.1, 0.1, 0.1),
-                row(41000, Widget::Knob, "LEVEL", [0.00, 4.25, 2.82, 3.24]).p(1),
-                row(42000, Widget::Knob, "PAN", [2.82, 4.25, 2.83, 3.24]).p(2),
-                row(43000, Widget::Knob, "ATK", [5.65, 4.25, 2.83, 3.24]).p(3),
-                row(44000, Widget::Knob, "DEC", [8.48, 4.25, 2.82, 3.24]).p(4),
-                row(45000, Widget::Knob, "SUS", [11.30, 4.25, 2.83, 3.24]).p(5),
-                row(46000, Widget::Knob, "REL", [14.13, 4.25, 2.82, 3.24]).p(6),
+                row(41100, Widget::Display, "", [0.10, 1.35, 16.76, 3.51]).margins(0.1, 0.1, 0.1, 0.1),
+                row(41000, Widget::Knob, "LEVEL", [0.00, 4.96, 2.82, 2.53]).p(1),
+                row(42000, Widget::Knob, "PAN", [2.82, 4.96, 2.83, 2.53]).p(2),
+                row(43000, Widget::Knob, "ATK", [5.65, 4.96, 2.83, 2.53]).p(3),
+                row(44000, Widget::Knob, "DEC", [8.48, 4.96, 2.82, 2.53]).p(4),
+                row(45000, Widget::Knob, "SUS", [11.30, 4.96, 2.83, 2.53]).p(5),
+                row(46000, Widget::Knob, "REL", [14.13, 4.96, 2.82, 2.53]).p(6),
             ],
             ..Case::DEFAULT
         },
@@ -803,14 +861,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 4,
             rows: &[
                 STRIP,
-                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 1.68]).margins(0.1, 0.1, 0.1, 0.1),
-                row(51000, Widget::Knob, "AMOUNT", [0.00, 3.13, 3.39, 2.36]).p(40),
-                row(52000, Widget::Knob, "ATTACK", [3.39, 3.13, 3.39, 2.36]).p(36),
-                row(53000, Widget::Knob, "DECAY", [6.78, 3.13, 3.39, 2.36]).p(37),
-                row(54000, Widget::Knob, "SUSTAIN", [10.17, 3.13, 3.39, 2.36]).p(38),
-                row(55000, Widget::Knob, "RELEASE", [13.56, 3.13, 3.40, 2.36]).p(39),
-                row(56100, Widget::Toggle, "VEL", [0.00, 5.49, 8.48, 2.00]).p(74),
-                row(56200, Widget::Spinner, "DEST", [8.48, 5.49, 8.48, 2.00]).p(41),
+                row(51100, Widget::Display, "", [0.10, 1.35, 16.76, 2.56]).margins(0.1, 0.1, 0.1, 0.1),
+                row(51000, Widget::Knob, "AMOUNT", [0.00, 4.01, 3.39, 2.08]).p(40),
+                row(52000, Widget::Knob, "ATTACK", [3.39, 4.01, 3.39, 2.08]).p(36),
+                row(53000, Widget::Knob, "DECAY", [6.78, 4.01, 3.39, 2.08]).p(37),
+                row(54000, Widget::Knob, "SUSTAIN", [10.17, 4.01, 3.39, 2.08]).p(38),
+                row(55000, Widget::Knob, "RELEASE", [13.56, 4.01, 3.40, 2.08]).p(39),
+                row(56100, Widget::TextToggle, "VEL", [0.00, 6.09, 5.26, 1.40]).w(Size::Flex(0.45)).p(74),
+                row(56200, Widget::Spinner, "DEST", [5.26, 6.09, 11.70, 1.40]).p(41),
             ],
             ..Case::DEFAULT
         },
@@ -819,11 +877,11 @@ pub const REFERENCE: Reference = Reference {
             tab: 5,
             rows: &[
                 STRIP,
-                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.16]).margins(0.1, 0.1, 0.1, 0.1),
-                row(61000, Widget::Knob, "AMOUNT", [0.00, 4.61, 4.24, 2.88]).p(34),
-                row(62000, Widget::Spinner, "SHAPE", [4.24, 4.61, 4.24, 2.88]).p(33),
-                row(63000, Widget::Spinner, "DEST", [8.48, 4.61, 4.24, 2.88]).p(35),
-                row(64000, Widget::Spinner, "RATE", [12.72, 4.61, 4.24, 2.88]).p(32).items_per_column(5),
+                row(61100, Widget::Display, "", [0.10, 1.35, 16.76, 3.72]).margins(0.1, 0.1, 0.1, 0.1),
+                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.17, 4.24, 2.32]).p(34),
+                row(62000, Widget::Spinner, "SHAPE", [4.24, 5.17, 4.24, 2.32]).p(33),
+                row(63000, Widget::Spinner, "DEST", [8.48, 5.17, 4.24, 2.32]).p(35),
+                row(64000, Widget::Spinner, "RATE", [12.72, 5.17, 4.24, 2.32]).p(32).items_per_column(5),
             ],
             ..Case::DEFAULT
         },
@@ -832,14 +890,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 4.24]).p(28),
-                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 4.24]).p(29),
-                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 4.24]).p(44),
-                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 4.24]).p(45),
-                row(75100, Widget::Toggle, "MONO", [0.00, 5.49, 4.24, 2.00]).p(30),
-                row(75200, Widget::Toggle, "AUTO", [4.24, 5.49, 4.24, 2.00]).p(31),
-                row(76100, Widget::Spinner, "VOICES", [8.48, 5.49, 4.24, 2.00]).p(42),
-                row(76200, Widget::Spinner, "SCALE", [12.72, 5.49, 4.24, 2.00]).p(43),
+                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 4.24, 4.84]).p(28),
+                row(72000, Widget::Knob, "SLIDE", [4.24, 1.25, 4.24, 4.84]).p(29),
+                row(73000, Widget::Knob, "CHOIR DTN", [8.48, 1.25, 4.24, 4.84]).p(44),
+                row(74000, Widget::Knob, "CHOIR STR", [12.72, 1.25, 4.24, 4.84]).p(45),
+                row(75100, Widget::TextToggle, "MONO", [0.00, 6.09, 3.18, 1.40]).w(Size::Flex(0.6)).p(30),
+                row(75200, Widget::TextToggle, "AUTO", [3.18, 6.09, 3.18, 1.40]).w(Size::Flex(0.6)).p(31),
+                row(76100, Widget::Spinner, "VOICES", [6.36, 6.09, 5.30, 1.40]).p(42),
+                row(76200, Widget::Spinner, "SCALE", [11.66, 6.09, 5.30, 1.40]).p(43),
             ],
             ..Case::DEFAULT
         },
@@ -950,7 +1008,7 @@ mod curve_tests {
         let mut module = module(0.7, 0.5);
         module.params[11] = 0.75;
         let curve = curve_a(&a, &b, &module, &PanelState::default(), 400);
-        let (first, second) = (curve[0], curve[100]);
+        let (first, second) = (curve[0], curve[200]);
         assert!(
             (first - second).abs() < 0.05,
             "A starts over at B's wrap: {first} {second}"

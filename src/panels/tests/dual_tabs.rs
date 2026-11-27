@@ -58,11 +58,11 @@ fn a_page_picked_on_the_other_strip_swaps_the_two() {
 
 #[test]
 fn both_pages_show_under_their_strips_in_slot_order() {
-    // MOD (2) on top, FILTER (0) below: the slots, not the tab order, give the order.
+    // MOD (2) on top, LEVEL (0) below: the slots, not the tab order, give the order.
     let state = dual(2, 0);
     let r = rects(&state);
     let (upper_strip, lower_strip) = (r[&0], r[&LOWER_TABS]);
-    let (top_page, bottom_page) = (r[&31000], r[&11000]);
+    let (top_page, bottom_page) = (r[&31000], r[&41000]);
     assert!(
         upper_strip.bottom() <= top_page.top(),
         "{upper_strip:?} {top_page:?}"
@@ -84,6 +84,6 @@ fn one_page_and_one_strip_without_two_at_once() {
     let mut state = dual(1, 0);
     state.dual_tabs = false;
     let r = rects(&state);
-    assert!(r.contains_key(&21100) && !r.contains_key(&11000));
+    assert!(r.contains_key(&21100) && !r.contains_key(&41000));
     assert!(!r.contains_key(&LOWER_TABS), "no lower strip");
 }
