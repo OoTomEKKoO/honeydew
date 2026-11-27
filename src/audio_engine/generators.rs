@@ -209,7 +209,9 @@ mod tests {
                 gmsynth::FM_RANGE,
                 gmsynth::LFO_MODE,
                 gmsynth::LFO_LOW,
-                gmsynth::LFO_HIGH
+                gmsynth::LFO_HIGH,
+                gmsynth::LFO_SYNC,
+                gmsynth::LFO_KEYSYNC
             ]
         );
     }

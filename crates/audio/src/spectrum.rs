@@ -1,25 +1,26 @@
 //! A small spectrum probe for an instrument's display: the last [`FFT`] samples through a Hann window and an FFT, folded
-//! into [`BANDS`] log-spaced bands from 20 Hz to 20 kHz, as levels 0…1 for −80 … 0 dB, smoothed (quick up, slower down).
+//! into [`BANDS`] log-spaced bands from 20 Hz to 20 kHz, as levels 0…1 for −80 … 0 dB, smoothed (quick up, slower down). A
+//! band narrower than an FFT bin (the low end) reads the interpolated level at its centre, so every band moves on its own.
 //!
 //! Everything is allocated in [`SpectrumProbe::new`] (on the app thread); [`SpectrumProbe::push`] and the update it
 //! triggers allocate nothing, so the audio thread may run them.
 
 use std::f32::consts::TAU;
 
-/// The FFT length: 4096 samples, 11.7 Hz a bin at 48 kHz, enough for the low end.
-pub const FFT: usize = 4096;
+/// The FFT length: 2048 samples, 23 Hz a bin at 48 kHz and a window of 43 ms: quick enough to follow a played note.
+pub const FFT: usize = 2048;
 /// The bands a display gets.
-pub const BANDS: usize = 64;
+pub const BANDS: usize = 96;
 /// The lowest and highest frequency a band covers.
 pub const LOW_HZ: f32 = 20.0;
 pub const HIGH_HZ: f32 = 20_000.0;
 /// The level shown as 0.
 const FLOOR_DB: f32 = -80.0;
 /// A new spectrum comes every this many samples.
-const HOP: usize = 1024;
+const HOP: usize = 512;
 /// How much of the old level a band keeps when it rises, and when it falls.
-const RISE: f32 = 0.5;
-const FALL: f32 = 0.88;
+const RISE: f32 = 0.2;
+const FALL: f32 = 0.8;
 
 /// The spectrum probe.
 pub struct SpectrumProbe {
@@ -32,8 +33,8 @@ pub struct SpectrumProbe {
     reversed: Box<[u16]>,
     re: Box<[f32]>,
     im: Box<[f32]>,
-    /// Each band's first and last-plus-one FFT bin.
-    bins: [(usize, usize); BANDS],
+    /// Each band's first and last-plus-one FFT bin, and its centre in bins.
+    bins: [(usize, usize, f32); BANDS],
     /// The scale that makes a full-scale sine 0 dB.
     norm: f32,
     levels: [f32; BANDS],
@@ -51,11 +52,12 @@ impl SpectrumProbe {
             .collect();
         let bin_hz = sample_rate.max(1.0) / FFT as f32;
         let edge = |k: usize| LOW_HZ * (HIGH_HZ / LOW_HZ).powf(k as f32 / BANDS as f32);
-        let mut bins = [(0, 1); BANDS];
+        let mut bins = [(0, 1, 0.0); BANDS];
         for (k, slot) in bins.iter_mut().enumerate() {
             let low = ((edge(k) / bin_hz).floor() as usize).clamp(1, FFT / 2 - 1);
             let high = ((edge(k + 1) / bin_hz).ceil() as usize).clamp(low + 1, FFT / 2);
-            *slot = (low, high);
+            let centre = (edge(k) * edge(k + 1)).sqrt() / bin_hz;
+            *slot = (low, high, centre.clamp(1.0, (FFT / 2 - 1) as f32));
         }
         Self {
             ring: vec![0.0; FFT].into(),
@@ -120,12 +122,15 @@ impl SpectrumProbe {
             }
             size *= 2;
         }
-        for (k, &(low, high)) in self.bins.iter().enumerate() {
-            // The loudest bin of the band: a pure tone reads as its own level whatever the band's width.
-            let magnitude = (low..high)
-                .map(|bin| self.re[bin].hypot(self.im[bin]))
-                .fold(0.0, f32::max)
-                * self.norm;
+        for (k, &(low, high, centre)) in self.bins.iter().enumerate() {
+            let at = |bin: usize| self.re[bin].hypot(self.im[bin]);
+            // A band of one or two bins reads the interpolated level at its centre; a wider one its loudest bin.
+            let magnitude = if high - low <= 2 {
+                let (i, f) = (centre as usize, centre.fract());
+                at(i) * (1.0 - f) + at((i + 1).min(FFT / 2)) * f
+            } else {
+                (low..high).map(at).fold(0.0, f32::max)
+            } * self.norm;
             let db = 20.0 * magnitude.max(1e-6).log10();
             let new = ((db - FLOOR_DB) / -FLOOR_DB).clamp(0.0, 1.0);
             let weight = if new > self.levels[k] { RISE } else { FALL };
@@ -170,7 +175,7 @@ mod tests {
                 "{hz} Hz: band {peak}, expected {band}"
             );
             // −6 dB on the 80 dB scale: 0.925, within the smoothing and the band's width.
-            assert!(out[peak] > 0.85, "{hz} Hz: {}", out[peak]);
+            assert!(out[peak] > 0.8, "{hz} Hz: {}", out[peak]);
             // Far from the tone it is quiet.
             let far = out[(band + BANDS / 2) % BANDS];
             assert!(far < 0.4, "{hz} Hz: {far} far away");

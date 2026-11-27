@@ -211,7 +211,7 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 /// `7 smt`, `Oct`), `MW AMOUNT` (`7`) and `MW DEST` (`6.2`, int(2v) of `Filter`, `LFO`, `Osc. Mod.`).
 /// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20 and `FM RANGE`
 /// (`#3.2`: `x1`, `x4`, `x8`, `x16`) at byte 24, the LFO's `MODE` (`#6.5`: `Shape`, `S&H`, `Note`) at 28 and the random
-/// range's `LOW` and `HIGH` (0…1 each) at 32 and 36, each written only once it is not its default, so a song that never
+/// range's `LOW` and `HIGH` (0…1 each) at 32 and 36, the LFO's note-value `SYNC` at 40 and its note restart `KEY` at 44, each written only once it is not its default, so a song that never
 /// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
     f("waveA", 0, 21100, Index(29), 0.0),
@@ -224,6 +224,8 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("LFO MODE", 28, 65100, Index(3), 0.0),
     f("LFO LOW", 32, 65200, Norm, 0.0),
     f("LFO HIGH", 36, 65300, Norm, 1.0),
+    f("LFO SYNC", 40, 65400, Index(15), 0.0),
+    f("LFO KEY", 44, 65500, Index(2), 0.0),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -847,6 +849,8 @@ mod tests {
                     (65100, 0.0),
                     (65200, 0.0),
                     (65300, 1.0),
+                    (65400, 0.0),
+                    (65500, 0.0),
                 ]),
             ),
             (
@@ -1021,6 +1025,8 @@ mod tests {
                 (65100, 0.0),
                 (65200, 0.0),
                 (65300, 1.0),
+                (65400, 0.0),
+                (65500, 0.0),
             ]);
             m.extend(extra.iter().copied());
             Some(m)

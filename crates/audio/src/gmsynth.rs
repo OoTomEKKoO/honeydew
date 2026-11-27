@@ -26,11 +26,14 @@ use crate::voice::{GMSYNTH_RATE_BEATS, tempo_step};
 
 /// Params 0–74.
 pub const PARAMS: usize = 75;
-/// The panel's live values ([`Instrument::analysis`]): the LFO's value now (−1…1) and its phase now (0…1), then the
-/// output's [`crate::spectrum::BANDS`] band levels (0…1, 20 Hz to 20 kHz).
+/// The panel's live values ([`Instrument::analysis`]): the LFO's value now (−1…1), its phase now (0…1), the filter's
+/// cutoff now (0…1), then the output's [`crate::spectrum::BANDS`] band levels (0…1, 20 Hz to 20 kHz).
 pub const LIVE_LFO: usize = 0;
 pub const LIVE_PHASE: usize = 1;
-pub const LIVE_BANDS: usize = 2;
+/// The filter's cutoff now (0…1), as the sounding voices have it with their envelopes, LFO and key tracking applied: their
+/// mean, or the CUTOFF knob's value while nothing sounds.
+pub const LIVE_CUTOFF: usize = 2;
+pub const LIVE_BANDS: usize = 3;
 /// The length of the live values.
 pub const LIVE_LEN: usize = LIVE_BANDS + crate::spectrum::BANDS;
 /// Voices.
@@ -83,6 +86,30 @@ pub const FM_SCALES: [f32; 4] = [1.0, 4.0, 8.0, 16.0];
 pub const LFO_MODE: u32 = 65100;
 pub const LFO_LOW: u32 = 65200;
 pub const LFO_HIGH: u32 = 65300;
+/// Honeydew's LFO sync menu: a note value for the LFO's cycle, in beats (item 0, `Orig.`, keeps the RATE menu's, whose steps
+/// are 1/4 to 8 bars with no triplets and nothing faster than a sixteenth). Kept in the `CSTM` blob after [`LFO_HIGH`].
+pub const LFO_SYNC: u32 = 65400;
+/// The cycle of each [`LFO_SYNC`] item after `Orig.`: 1/32, 1/16T, 1/16, 1/8T, 1/16., 1/8, 1/4T, 1/8., 1/4, 1/2, 1 bar, 2, 4
+/// and 8 bars, in beats of a quarter note.
+pub const LFO_SYNC_BEATS: [f32; 14] = [
+    0.125,
+    1.0 / 6.0,
+    0.25,
+    1.0 / 3.0,
+    0.375,
+    0.5,
+    2.0 / 3.0,
+    0.75,
+    1.0,
+    2.0,
+    4.0,
+    8.0,
+    16.0,
+    32.0,
+];
+/// Honeydew's LFO key sync: with it on (item 1), each note restarts the LFO's cycle, so it does not run on between
+/// notes. Kept in the `CSTM` blob after [`LFO_SYNC`].
+pub const LFO_KEYSYNC: u32 = 65500;
 const LFO_SAMPLE_HOLD: u8 = 1;
 const LFO_PER_NOTE: u8 = 2;
 const EXTRA_BP: u8 = 1;
@@ -386,6 +413,8 @@ struct Voice {
     stages: [[f32; STAGES]; 2],
     /// The `Comb` filter type's delay lines.
     comb: CombLines,
+    /// The cutoff the filter had at the last sample ([`LIVE_CUTOFF`]).
+    last_cutoff: f32,
     noise: u32,
 }
 
@@ -516,6 +545,7 @@ impl Voice {
                 + c.lfo_filter * lfo[i]
                 + filter_mod)
                 .clamp(0.0, 1.0);
+            self.last_cutoff = cutoff;
             let (a, b) = filter.at(cutoff);
             let (out_l, out_r) = if c.filter_extra == EXTRA_COMB {
                 // Comb: the delay follows the cutoff's frequency, the resonance sets the feedback.
@@ -678,6 +708,12 @@ pub struct GmSynth {
     lfo_high: f32,
     lfo_held: f32,
     lfo_last_phase: f64,
+    /// `CSTM`: the LFO sync item ([`LFO_SYNC`]), whether notes restart the LFO ([`LFO_KEYSYNC`]), the beat position it
+    /// counts its cycles from (the song's, while it plays) and the cycles at the last sample.
+    lfo_sync: usize,
+    lfo_keysync: bool,
+    lfo_origin: f64,
+    lfo_cycles: f64,
     /// The panel's live values ([`LIVE_LEN`]) and the probe that makes the spectrum in them.
     live: Box<[f32]>,
     probe: SpectrumProbe,
@@ -729,6 +765,10 @@ impl GmSynth {
             lfo_high: 1.0,
             lfo_held: 0.0,
             lfo_last_phase: 0.0,
+            lfo_sync: 0,
+            lfo_keysync: false,
+            lfo_origin: 0.0,
+            lfo_cycles: 0.0,
             live: vec![0.0; LIVE_LEN].into(),
             probe: SpectrumProbe::new(sample_rate),
             mw_amount: 0.5,
@@ -762,11 +802,24 @@ impl GmSynth {
         -1.0 + 2.0 * (low + (high - low) * u)
     }
 
+    /// The LFO's cycle in beats: the SYNC menu's note value, or with `Orig.` the RATE menu's.
+    fn lfo_period(&self) -> f64 {
+        f64::from(match self.lfo_sync {
+            0 => tempo_step(&GMSYNTH_RATE_BEATS, self.params[32]),
+            item => LFO_SYNC_BEATS[(item - 1).min(LFO_SYNC_BEATS.len() - 1)],
+        })
+    }
+
+    /// The LFO's cycles since `lfo_origin` at `frame` of the call, counted on the song's beats while it plays.
+    fn lfo_cycles_at(&self, context: &ProcessContext, frame: usize) -> f64 {
+        let beat = context.start_beat + frame as f64 * self.beats_per_frame(context);
+        beat / self.lfo_period() - self.lfo_origin
+    }
+
     /// The LFO phase at `frame` of the call: the song's while it plays, else the free-running one.
     fn lfo_phase_at(&self, context: &ProcessContext, frame: usize) -> f64 {
         if context.playing {
-            let beat = context.start_beat + frame as f64 * self.beats_per_frame(context);
-            (beat / f64::from(tempo_step(&GMSYNTH_RATE_BEATS, self.params[32]))).rem_euclid(1.0)
+            self.lfo_cycles_at(context, frame).rem_euclid(1.0)
         } else {
             self.lfo_phase
         }
@@ -925,8 +978,7 @@ impl GmSynth {
         let c = self.control;
         let (mut dither, mut lfo, mut amount) =
             ([0_u32; BLOCK], [0.0_f32; BLOCK], [0.0_f32; BLOCK]);
-        let step = self.beats_per_frame(context)
-            / f64::from(tempo_step(&GMSYNTH_RATE_BEATS, self.params[32]));
+        let step = self.beats_per_frame(context) / self.lfo_period();
         for i in 0..n {
             // One dither per sample, shared by both oscillators, every copy and every voice.
             dither[i] = next(&mut self.rng) >> 10;
@@ -943,6 +995,9 @@ impl GmSynth {
                 }
             };
             self.lfo_last_phase = phase;
+            if context.playing {
+                self.lfo_cycles = self.lfo_cycles_at(context, frame + i);
+            }
             // What the panel shows of the LFO: its value and phase at the block's last sample.
             self.live[LIVE_LFO] = lfo[i];
             self.live[LIVE_PHASE] = phase as f32;
@@ -973,6 +1028,15 @@ impl GmSynth {
             self.probe
                 .push(0.5 * (out_left + out_right), &mut self.live[LIVE_BANDS..]);
         }
+        // The cutoff the sounding voices have now, for the filter's picture to move with.
+        let sounding = self.voices.iter().filter(|voice| voice.sounding());
+        let (sum, count) =
+            sounding.fold((0.0, 0), |(sum, n), voice| (sum + voice.last_cutoff, n + 1));
+        self.live[LIVE_CUTOFF] = if count > 0 {
+            sum / count as f32
+        } else {
+            self.params[21]
+        };
     }
 }
 
@@ -1321,6 +1385,12 @@ impl Instrument for GmSynth {
         if self.lfo_mode == LFO_PER_NOTE {
             self.lfo_held = self.random_lfo();
         }
+        if self.lfo_keysync {
+            // The LFO starts its cycle with the note: from phase 0 free-running, or from the song's beat as it is now.
+            self.lfo_phase = 0.0;
+            self.lfo_origin += self.lfo_cycles;
+            self.lfo_cycles = 0.0;
+        }
         let mono = self.params[SINGLE_VOICE] != 0.0;
         let glide_from = match self.last_key.replace(key) {
             // AUTO (v31, on at any nonzero v): no glide unless another key is held.
@@ -1492,6 +1562,13 @@ impl Instrument for GmSynth {
                 if mode != self.lfo_mode {
                     self.lfo_mode = mode;
                     self.lfo_held = self.random_lfo();
+                }
+            }
+            LFO_SYNC => self.lfo_sync = (value as usize).min(LFO_SYNC_BEATS.len()),
+            LFO_KEYSYNC => {
+                self.lfo_keysync = value >= 0.5;
+                if !self.lfo_keysync {
+                    self.lfo_origin = 0.0;
                 }
             }
             LFO_LOW | LFO_HIGH => {
@@ -1991,6 +2068,98 @@ mod tests {
         let a = lfo_values(&mut shape, 30, 700);
         let b = lfo_values(&mut mode, 30, 700);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn the_reported_cutoff_follows_the_envelope_and_rests_on_the_knob_when_silent() {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(21, 0.4); // CUTOFF
+        synth.set_parameter(27, 1.0); // filter envelope AMOUNT up
+        synth.set_parameter(26, 0.35); // DECAY
+        let (mut left, mut right) = (vec![0.0; 1000], vec![0.0; 1000]);
+        synth.process(&mut left, &mut right, STOPPED);
+        assert!(
+            (synth.analysis()[LIVE_CUTOFF] - 0.4).abs() < 1e-6,
+            "rests on the knob"
+        );
+        synth.note_on(60, 1.0, 0.5);
+        let mut seen = Vec::new();
+        for _ in 0..60 {
+            synth.process(&mut left, &mut right, STOPPED);
+            seen.push(synth.analysis()[LIVE_CUTOFF]);
+        }
+        assert!(seen.iter().all(|c| (0.0..=1.0).contains(c)));
+        let (first, last) = (seen[0], *seen.last().unwrap());
+        assert!(first > 0.6, "the envelope opens the filter: {first}");
+        assert!(
+            first > last + 0.1,
+            "and it closes again as it decays: {first} then {last}"
+        );
+    }
+
+    /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.
+    fn sample_hold_steps(item: f32, rate: f32, seconds: usize) -> usize {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(32, rate);
+        synth.set_setting(LFO_MODE, 1.0);
+        synth.set_setting(LFO_SYNC, item);
+        synth.note_on(60, 1.0, 0.5);
+        let ctx = ProcessContext {
+            sample_rate: RATE,
+            tempo_bpm: 120.0,
+            start_beat: 0.0,
+            playing: false,
+        };
+        let (mut left, mut right) = (vec![0.0; 100], vec![0.0; 100]);
+        let mut values = Vec::new();
+        for _ in 0..(RATE as usize * seconds / 100) {
+            synth.process(&mut left, &mut right, ctx);
+            values.push(synth.analysis()[LIVE_LFO]);
+        }
+        values.windows(2).filter(|w| w[0] != w[1]).count()
+    }
+
+    #[test]
+    fn the_lfo_sync_menu_sets_the_cycle_in_note_values() {
+        // At 120 BPM a quarter note is 0.5 s: an eighth 4 cycles a second's worth... in 2 s: 8 eighths, 16 sixteenths.
+        let (eighth, sixteenth, thirty_second) = (
+            sample_hold_steps(6.0, 0.9, 2),
+            sample_hold_steps(3.0, 0.9, 2),
+            sample_hold_steps(1.0, 0.9, 2),
+        );
+        assert!((7..=9).contains(&eighth), "1/8: {eighth}");
+        assert!((15..=17).contains(&sixteenth), "1/16: {sixteenth}");
+        assert!((31..=33).contains(&thirty_second), "1/32: {thirty_second}");
+        // Orig. keeps the RATE menu: its slowest step is 32 beats, no change in 2 s.
+        assert!(sample_hold_steps(0.0, 1.0, 2) <= 1);
+        // A triplet is faster than the straight value: 1/8T (item 4) against 1/8 (item 6).
+        assert!(sample_hold_steps(4.0, 0.9, 2) > eighth);
+    }
+
+    #[test]
+    fn key_sync_restarts_the_lfo_with_each_note_and_off_lets_it_run_on() {
+        let run = |keysync: f32| {
+            let mut synth = GmSynth::new(RATE);
+            synth.set_parameter(32, 0.5);
+            synth.set_setting(LFO_KEYSYNC, keysync);
+            synth.note_on(60, 1.0, 0.5);
+            let (mut left, mut right) = (vec![0.0; 3000], vec![0.0; 3000]);
+            synth.process(&mut left, &mut right, STOPPED);
+            let before = synth.analysis()[LIVE_PHASE];
+            synth.note_off(60);
+            synth.note_on(64, 1.0, 0.5);
+            let (mut left, mut right) = (vec![0.0; 1], vec![0.0; 1]);
+            synth.process(&mut left, &mut right, STOPPED);
+            (before, synth.analysis()[LIVE_PHASE])
+        };
+        let (before, after) = run(1.0);
+        assert!(before > 0.01, "the LFO ran: {before}");
+        assert!(after < 0.001, "a note restarts it: {after}");
+        let (before, after) = run(0.0);
+        assert!(
+            after > before,
+            "free-running it runs on: {before} then {after}"
+        );
     }
 
     #[test]

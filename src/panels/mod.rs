@@ -67,7 +67,7 @@ pub(crate) mod cstm;
 mod fx;
 pub(crate) use fx::couple_param;
 pub(crate) use fx::couple_scale;
-pub(crate) use fx::live_analysis;
+pub(crate) use fx::live_analysis_fast;
 pub use fx::post_feed;
 pub(crate) mod inst;
 pub use inst::slicer::post_loop;

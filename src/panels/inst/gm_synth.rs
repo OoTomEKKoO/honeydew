@@ -23,6 +23,11 @@ const MW_DEST: &[&str] = &["Filter", "LFO", "Osc. Mod."];
 const FM_RANGES: &[&str] = &["x1", "x4", "x8", "x16"];
 /// Honeydew's LFO modes, a `CSTM` setting: the original shapes, sample and hold, a new random value per note.
 const LFO_MODES: &[&str] = &["Shape", "S&H", "Note"];
+/// Honeydew's LFO note values, a `CSTM` setting: the cycle in notes, triplets and dotted notes; `Orig.` keeps the RATE menu's.
+const LFO_SYNCS: &[&str] = &[
+    "Orig.", "1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4", "1/2",
+    "1 Bar", "2 Bars", "4 Bars", "8 Bars",
+];
 /// The LFO is in its original mode (the shape menu's).
 static LFO_SHAPED: Show = Show::Setting(65100, 0);
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
@@ -53,7 +58,7 @@ fn picture(id: u32, draw: crate::panels::Draw, share: f32) -> Part {
 /// A page's main part with its menus and switches stacked at the right edge, in a column a quarter as wide: they are
 /// used less than the knobs, so the knobs and the picture keep the room.
 fn with_side(main: Part, side: impl IntoIterator<Item = Part>) -> Part {
-    let gap = |part: Part| part.margins(0.12, 0.0, 0.12, 0.0);
+    let gap = |part: Part| part.margins(0.06, 0.0, 0.06, 0.0);
     line([
         main.w(Size::Flex(3.6)),
         page(side.into_iter().map(gap)).w(Size::Flex(1.0)),
@@ -201,23 +206,30 @@ pub fn panel() -> Option<Panel> {
                 with_side(
                     page([
                         picture(61100, lfo_display, 1.6),
-                        // The random range, only while the LFO is random (S&H or Note).
+                        // AMOUNT at the foot, with the random range beside it while the LFO is random (S&H or Note).
                         knobs(
                             [
-                                knob(65200, "LOW").default(0.0),
-                                knob(65300, "HIGH").default(1.0),
+                                knob(61000, "AMOUNT").p(34),
+                                // A note restarts the LFO's cycle.
+                                text_toggle(65500, "KEY").w(Size::Flex(0.5)),
+                                knob(65200, "LOW").default(0.0).show(Show::Not(&LFO_SHAPED)),
+                                knob(65300, "HIGH")
+                                    .default(1.0)
+                                    .show(Show::Not(&LFO_SHAPED)),
                             ],
                             1.0,
-                        )
-                        .show(Show::Not(&LFO_SHAPED)),
+                        ),
                     ]),
-                    // The menus above, the control (AMOUNT) at the foot, where the thumb is.
                     [
                         spinner(65100, "MODE").items(LFO_MODES).compact(),
                         spinner(62000, "SHAPE").p(33).compact(),
                         spinner(63000, "DEST").p(35).compact(),
                         spinner(64000, "RATE").p(32).items_per_column(5).compact(),
-                        knob(61000, "AMOUNT").p(34).h(Size::Flex(1.8)),
+                        // Honeydew's note values, beside the original RATE; `Orig.` keeps RATE.
+                        spinner(65400, "SYNC")
+                            .items(LFO_SYNCS)
+                            .items_per_column(8)
+                            .compact(),
                     ],
                 ),
                 Accent::Lfo,
@@ -581,28 +593,32 @@ fn filter_display(
             text.gamma_multiply(0.45),
         );
     }
-    // The spectrum of what the synth is playing, behind the response: the bands of its live analysis, on the same log
-    // axis, rising from the bottom, so that the filter's shape is seen in the sound it shapes.
-    if let Some(slab) = crate::panels::live_analysis(ui, module.instance_id)
-        && slab.len() >= honeydew_audio::gmsynth::LIVE_LEN
-    {
+    // The live values of the synth: its spectrum, and the cutoff its voices have now.
+    let live = crate::panels::live_analysis_fast(ui, module.instance_id)
+        .filter(|slab| slab.len() >= honeydew_audio::gmsynth::LIVE_LEN);
+    // The spectrum of what the synth is playing, behind the response: one bar per band on the same log axis, so that the
+    // filter's shape is seen in the sound it shapes. Each bar has a brighter cap, and a hair of space beside it.
+    if let Some(slab) = &live {
         let bands = &slab[honeydew_audio::gmsynth::LIVE_BANDS..honeydew_audio::gmsynth::LIVE_LEN];
-        let log_band = (FILTER_HZ.1 / FILTER_HZ.0).ln() / bands.len() as f32;
-        let points: Vec<Pos2> = bands
-            .iter()
-            .enumerate()
-            .map(|(k, level)| {
-                let hz = FILTER_HZ.0 * (log_band * (k as f32 + 0.5)).exp();
-                pos2(x_of(hz), inner.bottom() - level * inner.height() * 0.92)
-            })
-            .collect();
-        fill_curve(
-            ui,
-            points,
-            inner.bottom(),
-            text.gamma_multiply(0.5),
-            t * 0.75,
-        );
+        let edge = |k: usize| {
+            FILTER_HZ.0 * (FILTER_HZ.1 / FILTER_HZ.0).powf(k as f32 / bands.len() as f32)
+        };
+        let painter = ui.painter();
+        for (k, level) in bands.iter().enumerate() {
+            let (left, right) = (x_of(edge(k)), x_of(edge(k + 1)));
+            let height = level * inner.height() * 0.92;
+            if height < t * 0.5 {
+                continue;
+            }
+            let bar = Rect::from_min_max(
+                pos2(left + t * 0.25, inner.bottom() - height),
+                pos2((right - t * 0.25).max(left + t * 0.5), inner.bottom()),
+            );
+            painter.rect_filled(bar, 0.0, text.gamma_multiply(0.16));
+            let cap =
+                Rect::from_min_max(bar.min, pos2(bar.max.x, bar.min.y + (t * 1.25).min(height)));
+            painter.rect_filled(cap, 0.0, text.gamma_multiply(0.55));
+        }
     }
     let steps = curve_points(cx, inner);
     let freqs: Vec<f32> = (0..=steps)
@@ -622,6 +638,28 @@ fn filter_display(
         Stroke::new(t * 0.75, ink.gamma_multiply(0.5)),
     );
     fill_curve(ui, points, inner.bottom(), ink, t * 1.25);
+    // The filter as it is at this moment, with the envelopes, the LFO and the key tracking on the cutoff: it moves while
+    // the knobs' own setting (the curve above) stays.
+    if let Some(slab) = &live {
+        let now = slab[honeydew_audio::gmsynth::LIVE_CUTOFF].clamp(0.0, 1.0);
+        if (now - cutoff).abs() > 0.002 {
+            let gains = honeydew_audio::gmsynth::filter_response(now, res, kind, extra, &freqs);
+            let moving: Vec<Pos2> = (freqs.iter().zip(&gains))
+                .map(|(&hz, &db)| pos2(x_of(hz), y_of(db)))
+                .collect();
+            let live_x =
+                x_of(honeydew_audio::gmsynth::cutoff_hz(now)).clamp(inner.left(), inner.right());
+            let painter = ui.painter();
+            painter.line_segment(
+                [pos2(live_x, inner.top()), pos2(live_x, inner.bottom())],
+                Stroke::new(t * 0.75, text.gamma_multiply(0.6)),
+            );
+            painter.add(Shape::line(
+                moving,
+                Stroke::new(t * 1.5, text.gamma_multiply(0.9)),
+            ));
+        }
+    }
     let handle = pos2(x, inner.bottom() - res * inner.height());
     ui.painter()
         .circle_stroke(handle, t * 3.0, Stroke::new(t, ink));
@@ -655,7 +693,7 @@ fn env_display(
     let t = cx.m.t();
     let preview =
         honeydew_audio::gmsynth::envelope_preview(kind, &module.params, curve_points(cx, inner));
-    // Room above for the times, and a little under the curve's foot and to its sides.
+    // Room above for the line of times, and a little under the curve's foot and to its sides.
     let (left, right) = (inner.left() + 3.0 * t, inner.right() - 3.0 * t);
     let (top, bottom) = (inner.top() + inner.height() * 0.2, inner.bottom() - 2.0 * t);
     let last = (preview.values.len() - 1) as f32;
@@ -673,18 +711,6 @@ fn env_display(
     let painter = ui.painter();
     let text = cx.theme.colors.text.to_color32();
     let x_of = |f: f32| left + (right - left) * f;
-    let stages: &[(f32, f32, &str, f32)] = if preview.releases {
-        &[
-            (0.0, preview.ends[0], "A", preview.seconds[0]),
-            (preview.ends[0], preview.ends[1], "D", preview.seconds[1]),
-            (preview.ends[2], preview.ends[3], "R", preview.seconds[2]),
-        ]
-    } else {
-        &[
-            (0.0, preview.ends[0], "A", preview.seconds[0]),
-            (preview.ends[0], preview.ends[1], "D", preview.seconds[1]),
-        ]
-    };
     // The line between stages, at the start of each stage after the first (and of the hold).
     let mut bounds = vec![preview.ends[0]];
     if preview.releases {
@@ -696,15 +722,29 @@ fn env_display(
             Stroke::new(t * 0.5, text.gamma_multiply(0.12)),
         );
     }
-    for &(from, _, name, seconds) in stages {
-        painter.text(
-            pos2(x_of(from) + 2.0 * t, inner.top() + t),
-            Align2::LEFT_TOP,
-            format!("{name} {}", seconds_text(seconds)),
-            cx.m.font_id(FontSize::Pt8),
-            text.gamma_multiply(0.55),
-        );
-    }
+    // The times in one line at the top left, so that short stages, which sit close together, never write over each other.
+    let label = if preview.releases {
+        format!(
+            "A {}   D {}   S {:.0}%   R {}",
+            seconds_text(preview.seconds[0]),
+            seconds_text(preview.seconds[1]),
+            preview.sustain * 100.0,
+            seconds_text(preview.seconds[2]),
+        )
+    } else {
+        format!(
+            "A {}   D {}",
+            seconds_text(preview.seconds[0]),
+            seconds_text(preview.seconds[1]),
+        )
+    };
+    painter.text(
+        pos2(inner.left() + 2.0 * t, inner.top() + t),
+        Align2::LEFT_TOP,
+        label,
+        cx.m.font_id(FontSize::Pt8),
+        text.gamma_multiply(0.6),
+    );
     fill_curve(ui, points, bottom, ink, t * 1.25);
 }
 
@@ -784,7 +824,7 @@ fn lfo_display(
     fill_curve(ui, points, base, ink, t * 1.25);
     // The running dot, at the value the LFO has now. In the original mode on its curve, in each cycle shown; in the
     // random modes on a line across the picture at the held value, moving with the phase.
-    if let Some(slab) = crate::panels::live_analysis(ui, module.instance_id)
+    if let Some(slab) = crate::panels::live_analysis_fast(ui, module.instance_id)
         && slab.len() >= honeydew_audio::gmsynth::LIVE_LEN
     {
         let (value, phase) = (
@@ -912,7 +952,7 @@ pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
     // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
     // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1 and the LFO's MODE, LOW and HIGH (65100–65300).
-    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (81100, 0.0)],
+    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (65400, 0.0), (65500, 0.0), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -925,9 +965,9 @@ pub const REFERENCE: Reference = Reference {
                 row(13000, Widget::Knob, "ATTACK", [5.30, 4.90, 2.66, 2.59]).p(25).ink(Ink::Accent(Accent::Filter)),
                 row(14000, Widget::Knob, "DECAY", [7.96, 4.90, 2.65, 2.59]).p(26).ink(Ink::Accent(Accent::Filter)),
                 row(15000, Widget::Knob, "AMOUNT", [10.61, 4.90, 2.66, 2.59]).p(27).ink(Ink::Accent(Accent::Filter)),
-                row(16100, Widget::TextToggle, "KBD", [13.27, 1.37, 3.69, 1.84]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
-                row(16200, Widget::Spinner, "KIND", [13.27, 3.45, 3.69, 1.84]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
-                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.53, 3.69, 1.84]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16100, Widget::TextToggle, "KBD", [13.27, 1.31, 3.69, 1.96]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
+                row(16200, Widget::Spinner, "KIND", [13.27, 3.39, 3.69, 1.96]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
+                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.47, 3.69, 1.96]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -944,9 +984,9 @@ pub const REFERENCE: Reference = Reference {
                 row(13000, Widget::Knob, "ATTACK", [5.30, 5.20, 2.66, 2.80]).p(25).ink(Ink::Accent(Accent::Filter)),
                 row(14000, Widget::Knob, "DECAY", [7.96, 5.20, 2.65, 2.80]).p(26).ink(Ink::Accent(Accent::Filter)),
                 row(15000, Widget::Knob, "AMOUNT", [10.61, 5.20, 2.66, 2.80]).p(27).ink(Ink::Accent(Accent::Filter)),
-                row(16100, Widget::TextToggle, "KBD", [13.27, 1.37, 3.69, 2.01]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
-                row(16200, Widget::Spinner, "KIND", [13.27, 3.62, 3.69, 2.01]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
-                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.87, 3.69, 2.01]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.12, 0.0, 0.12, 0.0),
+                row(16100, Widget::TextToggle, "KBD", [13.27, 1.31, 3.69, 2.13]).p(24).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
+                row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
+                row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
                 row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
@@ -984,10 +1024,10 @@ pub const REFERENCE: Reference = Reference {
                 row(34000, Widget::Knob, "DECAY", [5.30, 4.81, 2.66, 2.68]).p(18).ink(Ink::Accent(Accent::Mod)),
                 row(35000, Widget::Knob, "EG AMOUNT", [7.96, 4.81, 2.65, 2.68]).p(19).ink(Ink::Accent(Accent::Mod)),
                 row(37000, Widget::Knob, "MW AMOUNT", [10.61, 4.81, 2.66, 2.68]).ink(Ink::Accent(Accent::Mod)),
-                row(32000, Widget::Spinner, "KIND", [13.27, 1.37, 3.69, 1.32]).p(16).ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
-                row(32100, Widget::Spinner, "FM RANGE", [13.27, 2.93, 3.69, 1.32]).items("x1 · x4 · x8 · x16").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
-                row(36100, Widget::Spinner, "PB RANGE", [13.27, 4.49, 3.69, 1.32]).items("1 smt · 2 smt · 7 smt · Oct").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
-                row(36200, Widget::Spinner, "MW DEST", [13.27, 6.05, 3.69, 1.32]).items("Filter · LFO · Osc. Mod.").ink(Ink::Accent(Accent::Mod)).margins(0.12, 0.0, 0.12, 0.0),
+                row(32000, Widget::Spinner, "KIND", [13.27, 1.31, 3.69, 1.44]).p(16).ink(Ink::Accent(Accent::Mod)).margins(0.06, 0.0, 0.06, 0.0),
+                row(32100, Widget::Spinner, "FM RANGE", [13.27, 2.87, 3.69, 1.44]).items("x1 · x4 · x8 · x16").ink(Ink::Accent(Accent::Mod)).margins(0.06, 0.0, 0.06, 0.0),
+                row(36100, Widget::Spinner, "PB RANGE", [13.27, 4.43, 3.69, 1.44]).items("1 smt · 2 smt · 7 smt · Oct").ink(Ink::Accent(Accent::Mod)).margins(0.06, 0.0, 0.06, 0.0),
+                row(36200, Widget::Spinner, "MW DEST", [13.27, 5.99, 3.69, 1.44]).items("Filter · LFO · Osc. Mod.").ink(Ink::Accent(Accent::Mod)).margins(0.06, 0.0, 0.06, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -1017,8 +1057,8 @@ pub const REFERENCE: Reference = Reference {
                 row(53000, Widget::Knob, "DECAY", [5.30, 4.81, 2.66, 2.68]).p(37).ink(Ink::Accent(Accent::Envelope)),
                 row(54000, Widget::Knob, "SUSTAIN", [7.96, 4.81, 2.65, 2.68]).p(38).ink(Ink::Accent(Accent::Envelope)),
                 row(55000, Widget::Knob, "RELEASE", [10.61, 4.81, 2.66, 2.68]).p(39).ink(Ink::Accent(Accent::Envelope)),
-                row(56100, Widget::TextToggle, "VEL", [13.27, 1.37, 3.69, 2.88]).p(74).ink(Ink::Accent(Accent::Envelope)).margins(0.12, 0.0, 0.12, 0.0),
-                row(56200, Widget::Spinner, "DEST", [13.27, 4.49, 3.69, 2.88]).p(41).ink(Ink::Accent(Accent::Envelope)).margins(0.12, 0.0, 0.12, 0.0),
+                row(56100, Widget::TextToggle, "VEL", [13.27, 1.31, 3.69, 3.00]).p(74).ink(Ink::Accent(Accent::Envelope)).margins(0.06, 0.0, 0.06, 0.0),
+                row(56200, Widget::Spinner, "DEST", [13.27, 4.43, 3.69, 3.00]).p(41).ink(Ink::Accent(Accent::Envelope)).margins(0.06, 0.0, 0.06, 0.0),
             ],
             ..Case::DEFAULT
         },
@@ -1027,12 +1067,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 5,
             rows: &[
                 STRIP,
-                row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 6.04]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
-                row(65100, Widget::Spinner, "MODE", [13.27, 1.37, 3.69, 0.86]).items("Shape · S&H · Note").margins(0.12, 0.0, 0.12, 0.0).ink(Ink::Accent(Accent::Lfo)),
-                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.47, 3.69, 0.87]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(63000, Widget::Spinner, "DEST", [13.27, 3.58, 3.69, 0.87]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(64000, Widget::Spinner, "RATE", [13.27, 4.69, 3.69, 0.87]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(61000, Widget::Knob, "AMOUNT", [13.27, 5.80, 3.69, 1.56]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
+                row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 3.64]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
+                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.09, 8.84, 2.40]).p(34).ink(Ink::Accent(Accent::Lfo)),
+                row(65500, Widget::TextToggle, "KEY", [8.84, 5.09, 4.43, 2.40]).w(Size::Flex(0.5)).ink(Ink::Accent(Accent::Lfo)),
+                row(65100, Widget::Spinner, "MODE", [13.27, 1.31, 3.69, 1.12]).items("Shape · S&H · Note").margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.55, 3.69, 1.13]).p(33).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(63000, Widget::Spinner, "DEST", [13.27, 3.80, 3.69, 1.13]).p(35).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(64000, Widget::Spinner, "RATE", [13.27, 5.05, 3.69, 1.13]).p(32).items_per_column(5).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(65400, Widget::Spinner, "SYNC", [13.27, 6.30, 3.69, 1.13]).items("Orig. · 1/32 · 1/16T · 1/16 · 1/8T · 1/16. · 1/8 · 1/4T · 1/8. · 1/4 · 1/2 · 1 Bar · 2 Bars · 4 Bars · 8 Bars").items_per_column(8).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT
         },
@@ -1043,13 +1085,15 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 3.64]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
-                row(65200, Widget::Knob, "LOW", [0.00, 5.09, 6.63, 2.40]).ink(Ink::Accent(Accent::Lfo)),
-                row(65300, Widget::Knob, "HIGH", [6.63, 5.09, 6.64, 2.40]).ink(Ink::Accent(Accent::Lfo)),
-                row(65100, Widget::Spinner, "MODE", [13.27, 1.37, 3.69, 0.86]).items("Shape · S&H · Note").margins(0.12, 0.0, 0.12, 0.0).ink(Ink::Accent(Accent::Lfo)),
-                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.47, 3.69, 0.87]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(63000, Widget::Spinner, "DEST", [13.27, 3.58, 3.69, 0.87]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(64000, Widget::Spinner, "RATE", [13.27, 4.69, 3.69, 0.87]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(61000, Widget::Knob, "AMOUNT", [13.27, 5.80, 3.69, 1.56]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
+                row(61000, Widget::Knob, "AMOUNT", [0.00, 5.09, 3.79, 2.40]).p(34).ink(Ink::Accent(Accent::Lfo)),
+                row(65500, Widget::TextToggle, "KEY", [3.79, 5.09, 1.89, 2.40]).w(Size::Flex(0.5)).ink(Ink::Accent(Accent::Lfo)),
+                row(65200, Widget::Knob, "LOW", [5.68, 5.09, 3.80, 2.40]).ink(Ink::Accent(Accent::Lfo)),
+                row(65300, Widget::Knob, "HIGH", [9.48, 5.09, 3.79, 2.40]).ink(Ink::Accent(Accent::Lfo)),
+                row(65100, Widget::Spinner, "MODE", [13.27, 1.31, 3.69, 1.12]).items("Shape · S&H · Note").margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.55, 3.69, 1.13]).p(33).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(63000, Widget::Spinner, "DEST", [13.27, 3.80, 3.69, 1.13]).p(35).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(64000, Widget::Spinner, "RATE", [13.27, 5.05, 3.69, 1.13]).p(32).items_per_column(5).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(65400, Widget::Spinner, "SYNC", [13.27, 6.30, 3.69, 1.13]).items("Orig. · 1/32 · 1/16T · 1/16 · 1/8T · 1/16. · 1/8 · 1/4T · 1/8. · 1/4 · 1/2 · 1 Bar · 2 Bars · 4 Bars · 8 Bars").items_per_column(8).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT
         },
@@ -1062,10 +1106,10 @@ pub const REFERENCE: Reference = Reference {
                 row(72000, Widget::Knob, "SLIDE", [3.31, 1.25, 3.32, 6.24]).p(29),
                 row(73000, Widget::Knob, "CHOIR DTN", [6.63, 1.25, 3.32, 6.24]).p(44),
                 row(74000, Widget::Knob, "CHOIR STR", [9.95, 1.25, 3.32, 6.24]).p(45),
-                row(75100, Widget::TextToggle, "MONO", [13.27, 1.37, 3.69, 1.32]).p(30).margins(0.12, 0.0, 0.12, 0.0),
-                row(75200, Widget::TextToggle, "AUTO", [13.27, 2.93, 3.69, 1.32]).p(31).margins(0.12, 0.0, 0.12, 0.0),
-                row(76100, Widget::Spinner, "VOICES", [13.27, 4.49, 3.69, 1.32]).p(42).margins(0.12, 0.0, 0.12, 0.0),
-                row(76200, Widget::Spinner, "SCALE", [13.27, 6.05, 3.69, 1.32]).p(43).margins(0.12, 0.0, 0.12, 0.0),
+                row(75100, Widget::TextToggle, "MONO", [13.27, 1.31, 3.69, 1.44]).p(30).margins(0.06, 0.0, 0.06, 0.0),
+                row(75200, Widget::TextToggle, "AUTO", [13.27, 2.87, 3.69, 1.44]).p(31).margins(0.06, 0.0, 0.06, 0.0),
+                row(76100, Widget::Spinner, "VOICES", [13.27, 4.43, 3.69, 1.44]).p(42).margins(0.06, 0.0, 0.06, 0.0),
+                row(76200, Widget::Spinner, "SCALE", [13.27, 5.99, 3.69, 1.44]).p(43).margins(0.06, 0.0, 0.06, 0.0),
             ],
             ..Case::DEFAULT
         },

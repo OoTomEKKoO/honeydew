@@ -81,6 +81,19 @@ zu weit verloren gehen.
   Wert bei jeder Note), LFO-Seite mit MODE-Menü und LOW/HIGH-Knöpfen (nur bei Zufallsmodi sichtbar), Anzeige mit Band und Stufen.
   *Noch nicht gebaut:* Sync-Modi über das vorhandene tempo-synchrone RATE hinaus (freie Hz-Rate), LFO pro Stimme.
 
+## 3c. Feedback zur APK `a053c5b` und Umsetzung (gebaut und getestet, NOCH NICHT als APK; wartet auf Rückfrage)
+
+- LFO-Seite: AMOUNT-Knopf winzig -> AMOUNT steht jetzt in der Knopfreihe unten (mit KEY, LOW, HIGH), die Seitenspalte hat 5 Menüs
+  (MODE, SHAPE, DEST, RATE, SYNC) bei ~1.1 U Höhe (Abstand der Seitenspalte 0.06 U).
+- Spektrum feiner und reaktiver: `spectrum.rs` FFT 2048, Hop 512, 96 Bänder, schnellere Glättung, schmale Bänder interpoliert;
+  Anzeige als einzelne Balken mit hellerer Kappe (`filter_display`), Neuzeichnen alle 16 ms (`live_analysis_fast`).
+- Filter bewegt sich mit der Modulation: `LIVE_CUTOFF` (mittlerer echter Cutoff der klingenden Stimmen inkl. Envelope, LFO,
+  KBD), zweite, hellere Kurve und Linie in der Anzeige; die Kurve des Knopfwerts bleibt als Referenz.
+- Envelope-Beschriftung überlappte bei kurzen Zeiten -> eine Zeile „A … D … S …% R …".
+- LFO-Rate: neues Menü SYNC (`LFO_SYNC` 65400: Orig., 1/32, 1/16T, 1/16, 1/8T, 1/16., 1/8, 1/4T, 1/8., 1/4, 1/2, 1 Bar, 2/4/8 Bars;
+  `Orig.` = das bisherige RATE-Menü, dessen Stufen in Viertelschlägen beschriftet waren: „1/4" = ein Viertelschlag = 1/16)
+  und Schalter KEY (`LFO_KEYSYNC` 65500: jede Note startet den LFO-Zyklus neu, auch beim laufenden Song). CSTM-Felder ab Byte 40/44.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:

@@ -130,10 +130,20 @@ pub fn post_feed(ui: &Ui, instance_id: i32, feed: Option<(MeterSnapshot, &[f32])
 /// While there is one, the next frame comes within 50 ms, as for [`leveller::live_meter`]: the audio moves with no
 /// input to repaint for.
 pub(crate) fn live_analysis(ui: &Ui, instance_id: i32) -> Option<Arc<[f32]>> {
+    live_analysis_within(ui, instance_id, 50)
+}
+
+/// [`live_analysis`] for a picture that follows the sound closely (a spectrum, a moving filter): the next frame comes within
+/// 16 ms, about 60 a second, while there is a running stream.
+pub(crate) fn live_analysis_fast(ui: &Ui, instance_id: i32) -> Option<Arc<[f32]>> {
+    live_analysis_within(ui, instance_id, 16)
+}
+
+fn live_analysis_within(ui: &Ui, instance_id: i32, millis: u64) -> Option<Arc<[f32]>> {
     let slab = ui.data(|d| d.get_temp(analysis_id(ui, instance_id)));
     if slab.is_some() {
         ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(50));
+            .request_repaint_after(std::time::Duration::from_millis(millis));
     }
     slab
 }
