@@ -1,83 +1,126 @@
-# FORK_STATUS.md – Stand, Entscheidungen und nächste Schritte (Honeydew-Fork)
+# FORK_STATUS.md – Gesamtstand, Entscheidungen und offene Punkte (Honeydew-Fork)
 
 Übergabe zwischen Sitzungen. **Zuerst lesen, wenn eine neue Sitzung beginnt.** `CLAUDE.md` hat die Arbeitsregeln und die
-Architektur; diese Datei den Stand. Nach jedem Schritt hier kurz nachtragen (Stand, Rückmeldung des/der Besitzer:in).
+Architektur; diese Datei den Stand. Nach jedem Schritt hier nachtragen. Stand: Ende Tag 2 (Commit `e5e5780` und danach).
 
-## Kurzstand (Ende Tag 2)
+## 1. Worum es geht
 
-- Arbeitsbranch: `claude/honeydew-fork-setup-b6pc8o` (nur dort pushen, nie `main`). Jeder Push startet CI und den
-  Android-Debug-Build (Artifact `honeydew-android-debug`, Link über `gh api repos/OoTomEKKoO/honeydew/actions/runs`).
-- Der/die Besitzer:in arbeitet nur auf dem Handy (Android, Hochformat), testet jede APK und schickt Screenshots.
-- Gebaut und vom Besitzer getestet: GM Synth mit EXTRA-Filtern (BP/Notch/Comb), FM RANGE (x1…x16), zwei Tab-Leisten
-  (zwei Seiten gleichzeitig), alle Slider als Knobs, Wellen-Auswahl per Tippen auf die Vorschau, kompakte Menüs, Ein-/
-  Zwei-Seiten-Schalter im ≡-Menü, dunkle Popup-Menüs (`menuFill`), Tabs auch bei gehaltener Taste (zweiter Finger).
-- Zuletzt gebaut (wartet auf Handy-Test): Tab-Reihenfolge LEVEL/OSC/MOD/FILTER/EG/LFO/VOICES/FX, einzeilige Menüs,
-  höhere Anzeigen (Filter-Frequenzgang mit Ziehen, Envelope-Stufenanzeige, LFO-Anzeige), ein ganzer Zyklus pro Wellenanzeige.
-- Klangbefund: GM-Synth-Oszillatoren klingen im Original-Honeydew wie im Fork „kaputt" im Vergleich zu FL Mobile
-  (bit-genau identisch zum Original); Verbesserung ist Punkt 8 unten.
+Der/die Besitzer:in (keine Programmierkenntnisse, arbeitet **nur auf dem Handy, Android, Hochformat**, spricht Deutsch)
+entwickelt diesen Fork von Honeydew (Open-Source-DAW in Rust, Vorbild FL Studio Mobile, GPL-3.0) zur besten DAW für
+Android („gibt dort keine vergleichbar gute"). Erster Arbeitsbereich: der **GM Synth**. Wünsche: modernes, touchfreundliches
+Layout im Hochformat, grafische reaktive Vorschauen (Filter, Envelopes, LFO, Oszillatoren), frei mappbare Envelopes/LFOs mit
+Modulationsanzeige am Knopf, Custom-Wellenformen (später Wavetable), ein Farbsystem im Stil von Bitwig/Massive X (eigene
+Umsetzung, übertragbar auf andere Module, später ans Theme anpassbar). Der Grundstil der FL-Mobile-Optik soll nicht
+zu weit verloren gehen.
 
-## Farbsystem v1 (gebaut, wartet auf Handy-Test)
+## 2. Arbeitsweise (Kurzfassung, Details in CLAUDE.md)
 
-Vorbild laut Screenshot des Besitzers (Bitwig Polymer): neutrale dunkle Flächen, je Bereich genau eine Akzentfarbe, die nur
-„Lebendiges" färbt (Titel, Kurve/Punkte, Wertbogen am Knopf); Knopfkörper neutral; verschiedene Envelopes verschiedene Farben.
-Umsetzung: `theme::Accent` (Rollen Osc gelb, Mod orange, Filter cyan, Level blau, Envelope grün, Lfo violett, Fx magenta;
-`Accent::color(&ThemeColors)` ist die Stelle für spätere Theme-Anpassung), `Ink::Accent`, `build::tint(part, accent)`,
-im GM Synth pro Seite angewendet (VOICES bleibt Kanalfarbe). Test: Kontrast ≥ 3 auf den Panelfarben des Standard-Themes.
-Noch offen: farbiger Streifen/Titel pro Seite, Modulationsring in Quellfarbe, Übertragung auf andere Module, Theme-Ableitung.
+- Branch: `claude/honeydew-fork-setup-b6pc8o` (nur dort pushen, nie `main`, keine PRs ohne Wunsch). Fork: `OoTomEKKoO/honeydew`
+  (öffentlich; Original `daijro/honeydew`, Version 0.5.5, unverändert = Commit `ed8fb6c`).
+- **Builds bündeln und vorher fragen:** Jeder Push auf `claude/**` startet CI und den Android-Debug-Build. Vor einem solchen
+  Push den/die Besitzer:in fragen, ob weitere Änderungen gewünscht sind, und die eigene Einschätzung sagen (genug für einen
+  sinnvollen Test, oder zu viel auf einmal?). Doku-Commits mit `[skip ci]` (Markdown löst ohnehin nichts aus).
+- Erklärungen in einfachem Deutsch, für das Handy formuliert (GitHub im Browser, APK installieren). Claude sieht die App nicht:
+  Screenshots und konkrete Beschreibungen des/der Besitzer:in sind die Grundlage für UI-Arbeit.
+- Vor jedem Push lokal: `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`
+  (ALSA-Entwicklerpakete installieren: `apt-get install -y libasound2-dev libxkbcommon-dev libwayland-dev libclang-dev`).
+- APK holen: Link zum Lauf (`gh api repos/OoTomEKKoO/honeydew/actions/runs`), Artifact `honeydew-android-debug` (ZIP mit APK),
+  installiert sich als „Honeydew Debug" über die vorige (fester Debug-Schlüssel `android/debug.keystore`). Ein Build braucht
+  etwa 8 Minuten.
+- Vergleich mit dem Original: Actions → „Android debug APK" → Run workflow, Feld `ref` (gleiche App-ID und Signatur).
+- **Fallstrick:** GitHub schaltet Workflows auf Forks von Zeit zu Zeit ab (Banner „Workflows on this fork have been disabled",
+  `gh api … dispatches` antwortet „Actions has been disabled"): der/die Besitzer:in muss im Browser auf den grünen Knopf
+  „I understand my workflows, go ahead and re-enable them" tippen (github.com/OoTomEKKoO/honeydew/actions). Danach Build mit
+  `gh api -X POST repos/OoTomEKKoO/honeydew/actions/workflows/android-debug.yml/dispatches -f ref=claude/honeydew-fork-setup-b6pc8o`.
+- Referenztabelle des GM-Synth-Panels (`REFERENCE` in `src/panels/inst/gm_synth.rs`) pinnt Rechtecke je Seite: nach
+  Layoutänderungen Zeilen von Hand anpassen (Reihenfolge, Widget-Art, Ränder, Größenregeln, Tinte) und die Rechtecke mit
+  `tools/harvest-gmsynth-reference.py` aus den Testmeldungen übernehmen (zweimal laufen lassen).
 
-## Feedback Tag 2, Teil 2 (zur APK mit Farben) und Umsetzung
+## 3. Erledigt (alles im GM Synth, auf dem Handy getestet, soweit nicht anders vermerkt)
 
-- Menüs: „überlappen teils, nehmen zu viel Platz; am rechten Rand übereinander stapeln, nicht unten flach" -> umgesetzt:
-  `with_side(main, side)` in `gm_synth.rs` (Haupt 3.6 : Seitenspalte 1.0), Menüs passen sich an (`paint_compact`: einzeilig,
-  sonst Beschriftung über dem Wert, nie überlappend).
-- Envelope-Anzeige „reagiert nicht mehr": Ursache war mein Fehler (feste Breitenanteile je Stufe -> die normierte Kurve ändert
-  sich bei ATTACK/DECAY nicht, nur die Beschriftung). Jetzt folgt der Breitenanteil der Stufenzeit logarithmisch
-  (`env_weight`: mind. 0.35, bis ~1.35 bei 20 s), Test `attack share grows`.
-- OSC-FM bei tiefem Pitch von B wirkte unsymmetrisch („wandert von rechts rein"): B wird jetzt um die Mitte des A-Zyklus
-  gelesen (`phase_b_at` in `curve_a`), Test mit Ring-Modulation (spiegelsymmetrisch).
+- **Zusatzfilter EXTRA** (Off/BP/Notch/Comb) – `crates/audio/src/gmsynth.rs` (`FILTER_EXTRA` 16300, `ladder`, `CombLines`).
+- **FM RANGE** x1/x4/x8/x16 (`FM_RANGE` 32100, x1 = Original) – der Besitzer bestätigt: bringt hörbar etwas (Serum-artig körniger).
+  Das „FM" des GM Synth ist Phasenmodulation (A bei φ_A + (B+1)·m·scale gelesen).
+- **Speicherung kompatibel:** Zusatzeinstellungen im CSTM-Blob **hinter** den ersten 20 Bytes, nur wenn benutzt (`panels/cstm.rs`
+  `GMSYNTH`, `grow()`); Songs ohne sie bleiben byte-gleich. *Ungeprüft:* ob FL Studio Mobile Songs mit eingeschaltetem
+  EXTRA/FM RANGE fehlerfrei öffnet.
+- **Zwei Tab-Leisten / zwei Seiten gleichzeitig** im Hochformat (`PartKind::Pager`, `build::pager`,
+  `PanelState::{tab, tab2, dual_tabs, pick_tab}`, untere Leiste = Control-ID `LOWER_TABS` 1, Karte 18 U `GMSYNTH_PORTRAIT`,
+  eine Seite 11 U `GMSYNTH_SINGLE`, Umschalter „One page"/„Two pages" im ≡-Menü der Karte, **nur pro Sitzung**, nicht gespeichert).
+  Tab-Reihenfolge: **LEVEL, OSC, MOD, FILTER, EG, LFO, VOICES, FX** (Seitenindex 0..7).
+- **Tabs auch mit zweitem Finger** (während eine Taste gehalten wird): `widgets/list.rs` `item_list_index` (Muster Issue #68).
+- **Alle Slider im GM Synth sind Knobs.** Kompakte Menüs (`Leaf::compact`, `paint_compact` in `widgets/spinner.rs`: einzeilig,
+  sonst Beschriftung über dem Wert, nie überlappend), `text_toggle` für KBD/VEL/MONO/AUTO, Menüs/Schalter in einer **Spalte am
+  rechten Rand** (`with_side`), Knobs unten, Anzeigen oben (`picture`, `knobs`, `page`, `line` in `gm_synth.rs`).
+- **Oszillator-Anzeigen** (OSC-Seite, A und B nebeneinander): Auswahlfeld per Tippen auf die Anzeige (`widgets::tap_picker`,
+  Spinner mit `.draw`), ganzer Zyklus mit seitlichem Rand, pixelfein, A zeigt Ring/FM/Sync-Modulation (`curve_a`, B um die
+  Mitte des A-Zyklus gelesen), B mit PHASE B, BALANCE als Deckkraft/Vorzeichen.
+- **Filter-Anzeige** (FILTER-Seite): Frequenzgang log 20 Hz–20 kHz, −30…+24 dB, Cutoff-Linie und Resonanz-Ring, **Ziehen setzt
+  CUTOFF (x) und RES (y)** (`gmsynth::filter_response`, per Zeitbereichstest gegen den echten Filter geprüft, auch mit Resonanz).
+- **Envelope-Anzeigen** auf LEVEL, EG, MOD (`gmsynth::envelope_preview`: echte Exponentialkurven stufenweise, Breite je Stufe
+  logarithmisch nach Zeit, echte Zeiten als Beschriftung, gegen die echte `Envelope` geprüft) und **LFO-Anzeige** (`lfo_preview`),
+  nur Anzeigen. *Letzter Test steht aus:* bewegt sich die Envelope-Anzeige sichtbar mit den Knöpfen (war einmal zu starr).
+- **Dunkle Popup-Menüs** (`ui/popup.rs`: `menuFill`-Panel, Labels `label_ink`, aktueller Eintrag `background`-Balken).
+- **Farbsystem v1** (`theme::Accent`, `Ink::Accent`, `build::tint`): Osc gelb, Mod orange, Filter cyan, Level blau, Envelope grün,
+  LFO violett, FX magenta; VOICES Kanalfarbe. Färbt Knob-Bogen/-Zahl, Menüwerte, Kurven. Kontrasttest. *Meinung des Besitzers steht aus.*
+- Infrastruktur: Android-Debug-Workflow (`android-debug.yml`, mit optionalem `ref`), Windows/macOS-CI nur manuell, GPL-Merkzettel,
+  Fork öffentlich, Commits als „Claude" ohne E-Mail, Link zur Sitzung in den Commit-Texten (Besitzer ok damit).
 
-## Nächste Schritte (Reihenfolge nach Absprache)
+## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
-1. **Gestaltungsprinzip / Farbsystem (Bitwig-/Massive-X-artig, eigene Umsetzung).** Dunkle Flächen bleiben (Theme),
-   Akzentfarben mit festen Rollen färben nur Ringe, Kurven, Beschriftungen und kleine Balken: z. B. warm für Oszillator/
-   Welle, kühl für Filter, grün für Envelopes, violett für LFO/Modulation. Die Logik soll später auf andere Module
-   übertragbar sein (zentral definieren, z. B. eine Rollen-Palette in `src/theme.rs` oder `src/panels/accent.rs`, die ein Leaf
-   über `Ink`/Akzentrolle benutzt) und sich später dem Theme anpassen (Hue aus der Kanalfarbe ableiten). Erst jetzt als
-   Prinzip und im GM Synth; Übertragung auf andere Module und Theme-Anpassung nach Meinungsbildung des/der Besitzer:in.
-   Bitwig: Modulatoren je eigene Farbe, ein modulierter Regler zeigt einen Ring in der Modulatorfarbe, der der Modulation folgt.
-2. **Anbindung „Instrument → Oberfläche"** (`Instrument::analysis()`, `device.rs` `Visual`-Slab pro Meter, Größe je Typ,
-   `audio_engine/mod.rs` `analysis(index)` ist für Instrumente leer, App-Seite `live_analysis`): liefert dem GM Synth ein
-   Spektrum (für den Spektrum-Hintergrund der Filter-Anzeige, der auf den Filter reagiert) und die LFO-Phase (für den
-   laufenden Punkt auf der LFO-Kurve).
-3. **LFO-Erweiterung im GM Synth:** Sample & Hold, Sync-Modi (1/16 …), „bei jeder Note neuer Zufallswert" mit frei
-   einstellbaren Grenzen (min/max). Neue Einstellungen im CSTM-Blob (Muster: `FILTER_EXTRA` 16300 / `FM_RANGE` 32100, Feld in
-   `panels/cstm.rs` GMSYNTH, `grow()` schreibt erst bei Nutzung), Engine in `gmsynth.rs` (LFO ist bisher global, `lfo_value`).
-4. **Envelope-Punkte mit dem Finger ziehen** (Anzeigen in `gm_synth.rs`, `Draw` darf Params ändern und melden).
-5. **Frei mappbare Envelope(s) und LFO(s) im GM Synth** mit Ziel-Parameter und Amount, Modulationsring am Knob (je 1 zum
-   Testen). Siehe Roadmap Punkt 4 unten.
-6. **Custom-Wellenformen aus WAV** für Osc A/B (Roadmap Punkt 5).
-7. **Header sparen** (`CARD_HEADER` 1.5 U ist global; für den GM Synth schmaler?), weitere Seiten (VOICES, FX) im neuen Stil.
-8. **Oszillator-/Filter-Klangqualität** (Roadmap Punkt 7 und 6).
-9. **Upstream-Änderungen** (`daijro/honeydew`) gezielt übernehmen (cherry-pick), Repo dafür kurz mit `add_repo` anhängen.
+**A. Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – Voraussetzung für zwei Wünsche:
+ - *Spektrum-Analyser als Hintergrund der Filter-Anzeige, reagiert auf den Filter.* Der Analyzer-Effekt existiert; Instrumente
+   liefern bisher keine Analyse (`AudioRenderer::analysis(index)` ist für Instrumente leer; `crates/audio/src/device.rs`
+   `Visual`-Seqlock-Slab pro Meter, Größe je Modultyp; `src/audio_engine/mod.rs` `analysis()`; App: `panels/fx/mod.rs`
+   `live_analysis`, `post_feed`). Plan: `Instrument::analysis()` (Standard leer), GM Synth rechnet ein grobes Spektrum seiner
+   Ausgabe (allokationsfrei) und die LFO-Phase, Engine/Meter-Slab für Instrumente erweitern.
+ - *Laufender Punkt auf der LFO-Kurve synchron zur Modulation* (braucht die LFO-Phase).
+**B. LFO-Erweiterung:** Sample & Hold, Sync-Modi (1/16 …), **„bei jeder Note ein neuer Zufallswert"** mit frei einstellbaren
+ Grenzen (min/max). Neue CSTM-Einstellungen nach dem Muster `FILTER_EXTRA`/`FM_RANGE` (Feld in `cstm.rs`, `grow()`),
+ Engine `gmsynth.rs` (`lfo_value`, der LFO ist bisher global, 3 Formen Sine/Saw/Square, Rate in Beats `GMSYNTH_RATE_BEATS`).
+**C. Envelope-Punkte mit dem Finger ziehen** (Anzeigen in `gm_synth.rs`; `Draw` darf Params ändern: Beispiel `filter_display`).
+ Die Zeit-Parameter-Gesetze sind exponentiell (`attack_rate`, `decay_rate`), Umkehrfunktion nötig.
+**D. Frei mappbare Envelope(s) und LFO(s) im GM Synth** (zum Testen je 1; später per Kopie mehr) mit Ziel-Parameter und Amount,
+ Ziele: Cutoff, Resonanz, Pitch, Osc-B-Pitch, Balance, Noise, Mod-Amount, Level, Pan; **Modulationsring am Knob** in der Farbe
+ der Quelle, der sich mit dem Amount bewegt und von der Grundstellung abhebt (Bitwig-Prinzip). Neue Daten: Params hinter
+ Index 74 (Vorbild: Honeydew-eigene SoundFont-Player-Params 6–11 in `params/instruments.rs`) – vorher prüfen, wie FLM-Laden/
+ Speichern mit zusätzlichen Params umgeht. Das Modulator-Modul (Typ 1005) wird bewusst nicht angefasst.
+**E. Custom-Wellenformen aus WAV-Dateien** für Osc A/B (Menü-Eintrag „Custom", Vorbild `three_osc::osc::Wave::custom`; Welle auf
+ dem App-Thread bauen wie `gmsynth::prepare_setting`; Pfad im Song speichern; in ZIP-Export aufnehmen; Vorschau zeigt sie).
+ Später: **Wavetable** (die Wellen-Vorschau wurde dafür vorbereitet).
+**F. Gestaltung weiter:** farbiger Titel oder Streifen je Seite, Farbe der Quelle am Knopfring (siehe D), **Header sparen**
+ (`CARD_HEADER` 1.5 U ist global, für den GM Synth schmaler?), Übertragung des Systems auf andere Module, Theme-Ableitung der
+ Akzente (`Accent::color(&ThemeColors)` ist die Stelle), VOICES- und FX-Seite im neuen Stil verfeinern (FX noch fast wie früher),
+ Ein-/Zwei-Seiten-Wahl speichern (Settings).
+**G. Klang:** (1) Oszillator-Qualität vs. FL Mobile: zwei Saw-Wellen/FM klingen „kaputt", im Original-Honeydew genauso (bit-genau
+ identisch zum Fork), FL Mobile klingt sauberer. Hypothesen: `gm_waveshapes::read` nimmt den nächsten Tabellenwert plus Dither
+ (1024 Punkte) statt zu interpolieren, Aliasing bei hohen Tönen/starker FM, Detune. Vorgehen: Rauschabstand offline messen,
+ Verbesserungen einzeln mit Messung und Hörtest. (2) Filter klingt „steril": Drive/Sättigung vor dem Filter, Resonanzverhalten,
+ minimale analoge Unregelmäßigkeiten. Ausgang: Level-Spitzen von zwei Saw-Wellen liegen um 1,5 (Übersteuerung möglich).
+**H. Sonstiges:** Upstream-Änderungen von `daijro/honeydew` gezielt übernehmen (cherry-pick; Repo mit `add_repo` anhängen); der
+ Zeitplan-Workflow `lemon-effects.yml` des Originals läuft wöchentlich auf `main` (Abschalten angeboten, noch keine Antwort);
+ Veröffentlichung später: GPL-Pflichten, Name/Branding prüfen (siehe CLAUDE.md); FL-Mobile-Kompatibilität der Songs prüfen.
 
-## Wunsch Gestaltung (Originalton des/der Besitzer:in, Tag 2)
+## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
-Gefällt: Massive X (dunkle Oberfläche gepaart mit Farben). Soll **keine Kopie** sein, aber dynamisch; später auf andere Module
-übertragbar (Kohärenz, „aus einem Guss"), der Grundstil der DAW (FL-Mobile-Optik) soll nicht zu stark verändert werden.
-Orientierung an Massive X **und Bitwig Studio** (Farbgebung der Module nachsehen); **die Farben wie in Bitwig-Modulen schon
-jetzt**, also ein eigenes Gestaltungsprinzip; die Anpassung der Palette an das Theme kann nachträglich folgen, wenn der/die
-Besitzer:in sich eine Meinung gebildet hat.
+- Letzte APK (Commit `3587d86`): Menüs in der Spalte am rechten Rand (besonders LFO, dort am niedrigsten), Envelope-Anzeigen
+  bewegen sich, FM-Anzeige bei tiefem Pitch von B symmetrisch, Farben.
+- Gefällt das Farbsystem? Farbige Titel/Streifen nötig? Zu bunt oder zu wenig?
+- Dunkle Popup-Menüs: Farbe ok?
+- Reihenfolge wie empfohlen (A+B zusammen, dann C, dann D …) oder anders?
 
-## Wichtige Fakten (nicht vergessen)
+## 6. Bekannte Einschränkungen
 
-- Dateiformat-Kompatibilität zu FL Studio Mobile: Honeydew-eigene GM-Synth-Einstellungen stehen im CSTM-Blob **hinter** den
-  ersten 20 Bytes und nur, wenn benutzt (`FILTER EXTRA` @20, `FM RANGE` @24); alte Songs bleiben unverändert.
-- Tests: Referenztabelle `REFERENCE` in `src/panels/inst/gm_synth.rs` pinnt Rechtecke je Seite; nach Layoutänderungen
-  lassen sich die Rechtecke aus der Fehlermeldung des Tests (`cargo test --lib panels::tests::reference`) übernehmen.
-- Popups: `src/ui/popup.rs` (`panel_fill`, `label_ink`); Menüs kompakt: `Leaf::compact`; Wellen-Auswahl: `widgets::tap_picker`.
-- Vergleich mit dem Original: Actions → „Android debug APK" → Run workflow, Feld `ref` (z. B. `ed8fb6c` = unverändertes 0.5.5).
-- Lokale Prüfung vor jedem Push: `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
-- Die Öffentlichkeit: Fork ist öffentlich (GPL), Commits als „Claude"; die E-Mail-Adresse steht nicht im Repository.
+- Die Oszillator-FM-Anzeige ist ein **Schnappschuss** (im Klang sieht jeder A-Zyklus einen anderen Teil von B); PITCH B springt in
+  Halbtonstufen (FINE B ist stetig). Starke FM (x16) zeigt stauchende Spitzen – das ist der echte Verlauf.
+- Envelope-Anzeige: Zeitachse nur grob proportional; Filter-Envelope (Seite FILTER: ATTACK/DECAY/AMOUNT) hat noch keine Anzeige.
+- Ein-/Zwei-Seiten-Wahl ist nicht gespeichert. Push-Benachrichtigungen kamen beim Besitzer nicht an (Einstellung dort).
+- Windows/macOS/iOS/Web: Code kompiliert weiter (CI Linux: wasm-Check), wird aber nicht getestet.
+
+
+---
+
+# Anhang: ursprüngliche Roadmap-Texte (Tag 1/2, zur Nachvollziehbarkeit)
 
 ## Roadmap (vereinbart mit dem/der Besitzer:in, Android-Hochformat im Fokus)
 
