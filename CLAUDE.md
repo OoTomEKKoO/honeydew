@@ -113,6 +113,9 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
   (einmal rückversichern, was gebaut wird), dann ohne weitere Rückfragen codieren, testen, pushen und bis zur fertigen
   APK durchziehen und den Link melden. Pushen ist erlaubt, damit keine Zeit verloren geht. Reine Doku-Commits mit
   `[skip ci]` pushen (Markdown-Dateien lösen ohnehin keinen Build aus). Nach fertiger Antwort/APK eine Push-Nachricht senden.
+- **Rückfragen über das Fragen-Panel (AskUserQuestion).** Der Besitzer findet das angenehm: Bei Klärungsbedarf, Auswahl
+  zwischen Varianten oder uneindeutigen Wünschen lieber öfter ein Fragen-Panel mit 2–4 klaren Optionen (Empfehlung zuerst)
+  zeigen, statt zu raten oder lange Textfragen zu stellen. Nur echte Entscheidungen, keine Routinefragen.
 - Pro Feature: kleine, einzeln lauffähige Schritte, jeder Schritt = ein Commit.
 
 ## Lizenz (GPL-3.0-or-later) – Merkzettel für später
