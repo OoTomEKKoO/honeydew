@@ -52,6 +52,12 @@ pub trait Instrument: Send {
     fn freezes_when_disabled(&self) -> bool {
         false
     }
+    /// What the instrument's panel draws from the audio besides the meter, in the instrument's own layout (the GMSynth's:
+    /// [`crate::gmsynth::LIVE_LFO`] and the bands after it); its length is fixed for the instrument's life, as an
+    /// effect's analysis is. Empty by default.
+    fn analysis(&self) -> &[f32] {
+        &[]
+    }
 }
 
 /// The channel param MiniSynth reads as its mod wheel: MIDI CC #1 = 7 + 1.
@@ -134,6 +140,11 @@ pub struct InstrumentModule {
 }
 
 impl InstrumentModule {
+    /// The instrument's analysis ([`Instrument::analysis`]).
+    pub fn analysis(&self) -> &[f32] {
+        self.instrument.analysis()
+    }
+
     /// Wraps `instrument`, with scratch room for `max_block` frames (larger blocks are rendered in parts).
     pub fn new(instrument: Box<dyn Instrument>, max_block: usize) -> Self {
         Self {

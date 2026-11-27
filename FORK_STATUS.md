@@ -66,16 +66,31 @@ zu weit verloren gehen.
 - Infrastruktur: Android-Debug-Workflow (`android-debug.yml`, mit optionalem `ref`), Windows/macOS-CI nur manuell, GPL-Merkzettel,
   Fork öffentlich, Commits als „Claude" ohne E-Mail, Link zur Sitzung in den Commit-Texten (Besitzer ok damit).
 
+## 3b. Gebaut und getestet, aber NOCH NICHT als APK gebaut (wartet auf Rückfrage vor dem Build)
+
+- Kleine Korrekturen aus dem Feedback zur APK `3587d86`: (1) Envelope-Anzeige: eine Stufe mit der Zeit 0 ist jetzt senkrecht
+  (`env_weight` ab 0, feste Gesamtbreite, danach flache Linie), Breite folgt der Zeit; (2) OSC-Anzeige: bei langsamem B öffnet
+  sich das Fenster auf bis zu 4 Zyklen von A (`curve_a`, `MAX_A_CYCLES`), weil ein tiefer Modulator über viele Zyklen läuft
+  (Ursache für „kaum Einfluss": ein Zyklus sah fast unmoduliert aus); (3) LFO-Seitenspalte: Menüs oben, AMOUNT-Knopf unten.
+- **Punkt A erledigt:** `Instrument::analysis()`, `InstrumentModule::analysis`, `audio_engine/mod.rs` `analysis()` liefert für
+  Instrumente; `crates/audio/src/spectrum.rs` (`SpectrumProbe`, FFT 4096, 64 Bänder, allokationsfrei); GM Synth meldet
+  `LIVE_LFO`, `LIVE_PHASE`, Spektrum (`LIVE_BANDS`); Filter-Anzeige zeichnet das Spektrum hinter der Antwortkurve, LFO-Anzeige
+  einen laufenden Punkt (`panels::live_analysis`, sichtbar `pub(crate)`).
+- **Punkt B erledigt:** LFO-Modi (`LFO_MODE` 65100: Shape/S&H/Note, `LFO_LOW` 65200, `LFO_HIGH` 65300) im CSTM-Blob ab Byte 28
+  (`grow()` füllt Lücken mit Standardwerten), Engine in `gmsynth.rs` (globaler LFO: S&H neuer Wert bei jedem Zyklus, Note neuer
+  Wert bei jeder Note), LFO-Seite mit MODE-Menü und LOW/HIGH-Knöpfen (nur bei Zufallsmodi sichtbar), Anzeige mit Band und Stufen.
+  *Noch nicht gebaut:* Sync-Modi über das vorhandene tempo-synchrone RATE hinaus (freie Hz-Rate), LFO pro Stimme.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
-**A. Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – Voraussetzung für zwei Wünsche:
+**A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:
  - *Spektrum-Analyser als Hintergrund der Filter-Anzeige, reagiert auf den Filter.* Der Analyzer-Effekt existiert; Instrumente
    liefern bisher keine Analyse (`AudioRenderer::analysis(index)` ist für Instrumente leer; `crates/audio/src/device.rs`
    `Visual`-Seqlock-Slab pro Meter, Größe je Modultyp; `src/audio_engine/mod.rs` `analysis()`; App: `panels/fx/mod.rs`
    `live_analysis`, `post_feed`). Plan: `Instrument::analysis()` (Standard leer), GM Synth rechnet ein grobes Spektrum seiner
    Ausgabe (allokationsfrei) und die LFO-Phase, Engine/Meter-Slab für Instrumente erweitern.
  - *Laufender Punkt auf der LFO-Kurve synchron zur Modulation* (braucht die LFO-Phase).
-**B. LFO-Erweiterung:** Sample & Hold, Sync-Modi (1/16 …), **„bei jeder Note ein neuer Zufallswert"** mit frei einstellbaren
+**B. (TEILS ERLEDIGT, siehe 3b) LFO-Erweiterung:** Sample & Hold, Sync-Modi (1/16 …), **„bei jeder Note ein neuer Zufallswert"** mit frei einstellbaren
  Grenzen (min/max). Neue CSTM-Einstellungen nach dem Muster `FILTER_EXTRA`/`FM_RANGE` (Feld in `cstm.rs`, `grow()`),
  Engine `gmsynth.rs` (`lfo_value`, der LFO ist bisher global, 3 Formen Sine/Saw/Square, Rate in Beats `GMSYNTH_RATE_BEATS`).
 **C. Envelope-Punkte mit dem Finger ziehen** (Anzeigen in `gm_synth.rs`; `Draw` darf Params ändern: Beispiel `filter_display`).

@@ -21,10 +21,18 @@ use crate::ProcessContext;
 use crate::gm_waveshapes::{SLOTS, Spectrum, Wavetable, read, spectrum, table_index_for};
 use crate::instrument::Instrument;
 use crate::multifx::{Bank, Settings};
+use crate::spectrum::SpectrumProbe;
 use crate::voice::{GMSYNTH_RATE_BEATS, tempo_step};
 
 /// Params 0–74.
 pub const PARAMS: usize = 75;
+/// The panel's live values ([`Instrument::analysis`]): the LFO's value now (−1…1) and its phase now (0…1), then the
+/// output's [`crate::spectrum::BANDS`] band levels (0…1, 20 Hz to 20 kHz).
+pub const LIVE_LFO: usize = 0;
+pub const LIVE_PHASE: usize = 1;
+pub const LIVE_BANDS: usize = 2;
+/// The length of the live values.
+pub const LIVE_LEN: usize = LIVE_BANDS + crate::spectrum::BANDS;
 /// Voices.
 pub const VOICES: usize = 4;
 /// Choir copies at most: Solo … Quartet.
@@ -68,6 +76,15 @@ pub const FILTER_EXTRA: u32 = 16300;
 pub const FM_RANGE: u32 = 32100;
 /// The FM scale of each [`FM_RANGE`] item.
 pub const FM_SCALES: [f32; 4] = [1.0, 4.0, 8.0, 16.0];
+/// Honeydew's LFO modes (not in FL Studio Mobile), kept in the `CSTM` blob after [`FM_RANGE`]: item 0 `Shape` is the
+/// original LFO (the SHAPE menu's), 1 `S&H` takes a new random value at the start of each cycle and holds it, 2 `Note` takes
+/// a new random value at each note and holds it. The values lie between [`LFO_LOW`] and [`LFO_HIGH`] (0…1 each, over the
+/// LFO's −1…1).
+pub const LFO_MODE: u32 = 65100;
+pub const LFO_LOW: u32 = 65200;
+pub const LFO_HIGH: u32 = 65300;
+const LFO_SAMPLE_HOLD: u8 = 1;
+const LFO_PER_NOTE: u8 = 2;
 const EXTRA_BP: u8 = 1;
 const EXTRA_NOTCH: u8 = 2;
 const EXTRA_COMB: u8 = 3;
@@ -655,6 +672,15 @@ pub struct GmSynth {
     filter_extra: u8,
     /// `CSTM`: the FM range item ([`FM_RANGE`]).
     fm_range: usize,
+    /// `CSTM`: the LFO's mode and the random range ([`LFO_MODE`]), the value held now and the phase last seen.
+    lfo_mode: u8,
+    lfo_low: f32,
+    lfo_high: f32,
+    lfo_held: f32,
+    lfo_last_phase: f64,
+    /// The panel's live values ([`LIVE_LEN`]) and the probe that makes the spectrum in them.
+    live: Box<[f32]>,
+    probe: SpectrumProbe,
     mw_amount: f32,
     mw_dest: usize,
     control: Control,
@@ -698,6 +724,13 @@ impl GmSynth {
             pb_range: PB_RANGES[1],
             filter_extra: 0,
             fm_range: 0,
+            lfo_mode: 0,
+            lfo_low: 0.0,
+            lfo_high: 1.0,
+            lfo_held: 0.0,
+            lfo_last_phase: 0.0,
+            live: vec![0.0; LIVE_LEN].into(),
+            probe: SpectrumProbe::new(sample_rate),
             mw_amount: 0.5,
             mw_dest: MW_OSC_MOD,
             control: Control::default(),
@@ -717,6 +750,16 @@ impl GmSynth {
 
     fn beats_per_frame(&self, context: &ProcessContext) -> f64 {
         f64::from(context.tempo_bpm.max(0.0)) / (60.0 * f64::from(self.sample_rate))
+    }
+
+    /// A new random LFO value between the range's ends (−1…1 over 0…1 each).
+    fn random_lfo(&mut self) -> f32 {
+        let u = (next(&mut self.rng) >> 8) as f32 / (1 << 24) as f32;
+        let (low, high) = (
+            self.lfo_low.min(self.lfo_high),
+            self.lfo_low.max(self.lfo_high),
+        );
+        -1.0 + 2.0 * (low + (high - low) * u)
     }
 
     /// The LFO phase at `frame` of the call: the song's while it plays, else the free-running one.
@@ -744,7 +787,11 @@ impl GmSynth {
             bank.prepare_block(&settings, context.tempo_bpm, start_beat, BLOCK);
         }
         let lfo_shape = ((2.0 * self.params[33]) as u8).min(2);
-        let lfo_now = lfo_value(lfo_shape, self.lfo_phase_at(context, frame));
+        let lfo_now = if self.lfo_mode == 0 {
+            lfo_value(lfo_shape, self.lfo_phase_at(context, frame))
+        } else {
+            self.lfo_held
+        };
         let v = &self.params;
         let sr = self.sample_rate;
         let c = &mut self.control;
@@ -885,7 +932,20 @@ impl GmSynth {
             dither[i] = next(&mut self.rng) >> 10;
             let phase = self.lfo_phase_at(context, frame + i);
             self.lfo_phase = (phase + step).fract();
-            lfo[i] = lfo_value(c.lfo_shape, phase);
+            lfo[i] = match self.lfo_mode {
+                0 => lfo_value(c.lfo_shape, phase),
+                mode => {
+                    // S&H: a new value when the phase wraps (a new cycle); Note: held until the next note.
+                    if mode == LFO_SAMPLE_HOLD && phase < self.lfo_last_phase {
+                        self.lfo_held = self.random_lfo();
+                    }
+                    self.lfo_held
+                }
+            };
+            self.lfo_last_phase = phase;
+            // What the panel shows of the LFO: its value and phase at the block's last sample.
+            self.live[LIVE_LFO] = lfo[i];
+            self.live[LIVE_PHASE] = phase as f32;
             self.mod_amount += SMOOTHING * (c.mod_target - self.mod_amount);
             amount[i] = self.mod_amount;
         }
@@ -906,8 +966,12 @@ impl GmSynth {
             self.level += SMOOTHING * (c.level - self.level);
             self.pan += SMOOTHING * (c.pan - self.pan);
             let (l, r) = ((2.0 - 2.0 * self.pan).min(1.0), (2.0 * self.pan).min(1.0));
-            left[i] += out[0] * self.level * l * l;
-            right[i] += out[1] * self.level * r * r;
+            let (out_left, out_right) = (out[0] * self.level * l * l, out[1] * self.level * r * r);
+            left[i] += out_left;
+            right[i] += out_right;
+            // The spectrum of the synth's own output, for the filter's picture.
+            self.probe
+                .push(0.5 * (out_left + out_right), &mut self.live[LIVE_BANDS..]);
         }
     }
 }
@@ -1106,20 +1170,21 @@ pub struct EnvelopePreview {
     pub sustain: f32,
 }
 
-/// The least share a stage's weight has: the shortest stage still takes about a tenth of the width, so it reads.
-const ENV_MIN_WEIGHT: f32 = 0.35;
+/// The weight of a stage of no length: a hair of width, so that a stage with no time is a steep, visible line and not a
+/// jump with nothing to see.
+const ENV_MIN_WEIGHT: f32 = 0.04;
 /// The weight of the sustain hold, between decay and release.
-const ENV_HOLD_WEIGHT: f32 = 0.45;
+const ENV_HOLD_WEIGHT: f32 = 0.4;
 /// A decay or release is drawn until it is within 0.5 % of where it goes (ln 200 time constants).
 const ENV_SETTLE: f32 = 5.298_317;
 
-/// A stage's weight for its share of the display: the least ([`ENV_MIN_WEIGHT`]) for 2 ms or less, growing with the
-/// logarithm of its time to a share three times as large at 20 s. So a longer stage visibly takes more of the width
-/// without a short one vanishing, and the picture moves when ATTACK, DECAY or RELEASE do.
+/// A stage's weight for its share of the display, from its time: nothing but a hair ([`ENV_MIN_WEIGHT`]) at no time,
+/// growing with the logarithm of 1 + time/10 ms to a full 1 at 20 s. A stage the engine runs in a millisecond (an
+/// attack or decay at 0 %) is therefore a near-vertical edge, a longer one visibly wider, and the picture moves with
+/// ATTACK, DECAY and RELEASE.
 fn env_weight(seconds: f32) -> f32 {
-    let (lo, hi) = (0.002_f32.log10(), 20.0_f32.log10());
-    let g = ((seconds.max(0.002).log10() - lo) / (hi - lo)).clamp(0.0, 1.0);
-    ENV_MIN_WEIGHT + g
+    let g = (1.0 + seconds.max(0.0) / 0.01).log10() / (1.0 + 20.0_f32 / 0.01).log10();
+    ENV_MIN_WEIGHT + g.clamp(0.0, 1.0)
 }
 
 /// The envelope `kind` of params `v`: the engine's own one-pole curves (attack aims at 5.0 and ends at 1, decay and
@@ -1157,15 +1222,18 @@ pub fn envelope_preview(kind: EnvelopeKind, v: &[f32], points: usize) -> Envelop
     } else {
         [env_weight(seconds[0]), env_weight(seconds[1]), 0.0, 0.0]
     };
-    let sum: f32 = weights.iter().sum();
+    // Shares of a fixed whole, the width the longest stages would need: a stage of no time keeps almost none of it (a
+    // vertical edge) and the picture ends early, with a flat line after it, when every stage is short.
+    let full = if release.is_some() {
+        3.0 * (1.0 + ENV_MIN_WEIGHT) + ENV_HOLD_WEIGHT
+    } else {
+        2.0 * (1.0 + ENV_MIN_WEIGHT)
+    };
     let mut ends = [0.0; 4];
     let mut total = 0.0;
     for (end, weight) in ends.iter_mut().zip(weights) {
-        total += weight / sum;
+        total += weight / full;
         *end = total;
-    }
-    if release.is_none() {
-        ends = [ends[0], 1.0, 1.0, 1.0];
     }
     // The attack runs 0 → 1 as 5·(1 − 0.8^u) over u in 0…1 (0.8 = 1 − 1/5: the level at which it ends).
     let n = points.max(2);
@@ -1178,11 +1246,13 @@ pub fn envelope_preview(kind: EnvelopeKind, v: &[f32], points: usize) -> Envelop
             } else if f <= ends[1] {
                 let u = (f - ends[0]) / (ends[1] - ends[0]);
                 sustain + (1.0 - sustain) * (-ENV_SETTLE * u).exp()
-            } else if f <= ends[2] || release.is_none() {
+            } else if release.is_none() || f <= ends[2] {
                 sustain
-            } else {
+            } else if f <= ends[3] {
                 let u = (f - ends[2]) / (ends[3] - ends[2]);
                 (sustain * (-ENV_SETTLE * u).exp() * (1.0 - u)).max(0.0)
+            } else {
+                0.0
             }
         })
         .collect();
@@ -1216,6 +1286,11 @@ fn pan_gains(p: f32) -> [f32; 2] {
 }
 
 impl Instrument for GmSynth {
+    /// The panel's live values ([`LIVE_LFO`], [`LIVE_PHASE`], then the spectrum's bands from [`LIVE_BANDS`]).
+    fn analysis(&self) -> &[f32] {
+        &self.live
+    }
+
     /// Stores every param; hidden 7–10 and 67–73 are never read. Turning MONO on sends a note-off to all 128
     /// keys first.
     fn set_parameter(&mut self, index: usize, value: f32) {
@@ -1243,6 +1318,9 @@ impl Instrument for GmSynth {
             .any(|(k, &down)| down && k != usize::from(key));
         self.held[usize::from(key)] = true;
         let velocity = velocity.clamp(0.0, 1.0);
+        if self.lfo_mode == LFO_PER_NOTE {
+            self.lfo_held = self.random_lfo();
+        }
         let mono = self.params[SINGLE_VOICE] != 0.0;
         let glide_from = match self.last_key.replace(key) {
             // AUTO (v31, on at any nonzero v): no glide unless another key is held.
@@ -1349,6 +1427,9 @@ impl Instrument for GmSynth {
         self.serial = 0;
         self.block_pos = 0;
         self.lfo_phase = 0.0;
+        self.probe.reset(&mut self.live[LIVE_BANDS..]);
+        self.live[LIVE_LFO] = 0.0;
+        self.live[LIVE_PHASE] = 0.0;
         self.snap = true;
         self.rng = SEED;
         for bank in &mut self.fx {
@@ -1406,6 +1487,27 @@ impl Instrument for GmSynth {
             PB_RANGE => self.pb_range = PB_RANGES[(value as usize).min(PB_RANGES.len() - 1)],
             MW_AMOUNT => self.mw_amount = value.clamp(0.0, 1.0),
             MW_DEST => self.mw_dest = (value as usize).min(MW_OSC_MOD),
+            LFO_MODE => {
+                let mode = (value as usize).min(usize::from(LFO_PER_NOTE)) as u8;
+                if mode != self.lfo_mode {
+                    self.lfo_mode = mode;
+                    self.lfo_held = self.random_lfo();
+                }
+            }
+            LFO_LOW | LFO_HIGH => {
+                let end = value.clamp(0.0, 1.0);
+                if key == LFO_LOW {
+                    self.lfo_low = end;
+                } else {
+                    self.lfo_high = end;
+                }
+                // The value held now stays inside the new range.
+                let (low, high) = (
+                    self.lfo_low.min(self.lfo_high),
+                    self.lfo_low.max(self.lfo_high),
+                );
+                self.lfo_held = self.lfo_held.clamp(-1.0 + 2.0 * low, -1.0 + 2.0 * high);
+            }
             FM_RANGE => self.fm_range = (value as usize).min(FM_SCALES.len() - 1),
             FILTER_EXTRA => self.filter_extra = (value as usize).min(usize::from(EXTRA_COMB)) as u8,
             _ => {}
@@ -1716,38 +1818,49 @@ mod tests {
     }
 
     #[test]
-    fn the_filter_and_mod_envelopes_ignore_note_off_and_every_attack_shows() {
+    fn the_filter_and_mod_envelopes_ignore_note_off_and_a_stage_of_no_time_is_vertical() {
         let mut v = DEFAULTS;
         v[26] = 0.3;
-        let filter = envelope_preview(EnvelopeKind::Filter, &v, 100);
+        let filter = envelope_preview(EnvelopeKind::Filter, &v, 400);
         assert!(!filter.releases);
-        assert_eq!(filter.ends[1], 1.0);
-        // A 1 ms attack and a 5 s one both take the same share of the width: the curve rises over it.
-        for attack in [0.0, 0.05, 0.9] {
+        assert!(filter.ends[1] <= 1.0 && filter.ends[1] == filter.ends[3]);
+        // An attack of 0 takes almost no width: the edge is (nearly) vertical, from 0 to 1 within a few percent.
+        v[25] = 0.0;
+        let zero = envelope_preview(EnvelopeKind::Filter, &v, 400);
+        assert!(zero.ends[0] < 0.05, "{}", zero.ends[0]);
+        let at = (zero.ends[0] * 399.0).ceil() as usize;
+        assert!(zero.values[at] > 0.95 && zero.values[0] == 0.0);
+        // A longer attack takes more width, a shorter one less: the picture moves with the knob.
+        let mut share = |attack: f32| {
             v[25] = attack;
-            let shown = envelope_preview(EnvelopeKind::Filter, &v, 100);
-            let at = (shown.ends[0] * 99.0) as usize;
-            assert!(
-                shown.values[at] >= 0.95,
-                "attack {attack}: {}",
-                shown.values[at]
-            );
-            assert!(
-                shown.values[at / 2] < shown.values[at],
-                "attack {attack} rises"
-            );
-        }
-        // A longer attack takes a larger share of the width, a shorter one a smaller: the picture moves with the knob.
-        v[25] = 0.1;
-        let quick = envelope_preview(EnvelopeKind::Filter, &v, 100).ends[0];
-        v[25] = 0.9;
-        let slow = envelope_preview(EnvelopeKind::Filter, &v, 100).ends[0];
-        assert!(slow > quick + 0.05, "{slow} {quick}");
-        // A longer decay is a longer time, on the same width.
-        let short = envelope_preview(EnvelopeKind::Filter, &v, 100).seconds[1];
+            envelope_preview(EnvelopeKind::Filter, &v, 100).ends[0]
+        };
+        let (low, mid, high) = (share(0.2), share(0.5), share(0.9));
+        assert!(mid > low + 0.03, "{mid} {low}");
+        assert!(high > mid + 0.05, "{high} {mid}");
+        // The same for the decay and, with a release, for the release: no time, no width.
+        v[26] = 0.0;
+        v[25] = 0.5;
+        let no_decay = envelope_preview(EnvelopeKind::Filter, &v, 100);
+        assert!(no_decay.ends[1] - no_decay.ends[0] < 0.1);
+        let mut level = DEFAULTS;
+        level[6] = 0.0;
+        let released = envelope_preview(EnvelopeKind::Level, &level, 100);
+        assert!(
+            released.ends[3] - released.ends[2] < 0.08,
+            "{:?}",
+            released.ends
+        );
+        // A longer decay is a longer time, on a wider share.
+        v[26] = 0.3;
+        let short = envelope_preview(EnvelopeKind::Filter, &v, 100);
         v[26] = 0.8;
-        let long = envelope_preview(EnvelopeKind::Filter, &v, 100).seconds[1];
-        assert!(long > short);
+        let long = envelope_preview(EnvelopeKind::Filter, &v, 100);
+        assert!(long.seconds[1] > short.seconds[1]);
+        assert!(
+            long.ends[1] - long.ends[0] > short.ends[1] - short.ends[0] - 1e-6
+                || long.ends[0] < short.ends[0]
+        );
     }
 
     #[test]
@@ -1758,6 +1871,126 @@ mod tests {
         assert_eq!(saw[0], -1.0);
         let square = lfo_preview(1.0, 1.0, 5);
         assert_eq!((square[0], square[4 - 1]), (-1.0, 1.0));
+    }
+
+    /// The spectrum bands the synth reports after rendering a held note with the filter's CUTOFF at `cutoff`.
+    fn bands_with_cutoff(cutoff: f32) -> Vec<f32> {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(21, cutoff);
+        synth.note_on(48, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 8192], vec![0.0; 8192]);
+        for _ in 0..4 {
+            synth.process(&mut left, &mut right, STOPPED);
+        }
+        assert_eq!(synth.analysis().len(), LIVE_LEN);
+        synth.analysis()[LIVE_BANDS..].to_vec()
+    }
+
+    #[test]
+    fn the_synth_reports_a_spectrum_that_follows_its_filter() {
+        let (open, closed) = (bands_with_cutoff(1.0), bands_with_cutoff(0.25));
+        let high = |bands: &[f32]| bands[40..].iter().sum::<f32>();
+        assert!(
+            bands_with_cutoff(1.0).iter().any(|v| *v > 0.3),
+            "something sounds"
+        );
+        assert!(
+            high(&open) > high(&closed) + 1.0,
+            "an open filter leaves the highs: {} against {}",
+            high(&open),
+            high(&closed)
+        );
+        assert!(open.iter().chain(&closed).all(|v| (0.0..=1.0).contains(v)));
+    }
+
+    #[test]
+    fn the_synth_reports_its_lfo_value_and_phase() {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(34, 1.0); // AMOUNT up
+        synth.note_on(60, 1.0, 0.5);
+        let (mut left, mut right) = (vec![0.0; 2000], vec![0.0; 2000]);
+        let mut phases = Vec::new();
+        for _ in 0..40 {
+            synth.process(&mut left, &mut right, STOPPED);
+            let live = synth.analysis();
+            assert!((-1.0..=1.0).contains(&live[LIVE_LFO]));
+            assert!((0.0..1.0).contains(&live[LIVE_PHASE]));
+            phases.push(live[LIVE_PHASE]);
+        }
+        // Free-running while stopped: the phase moves.
+        assert!(phases.windows(2).any(|w| (w[0] - w[1]).abs() > 1e-4));
+    }
+
+    /// The LFO value the synth reports after each of `blocks` blocks of `frames` frames.
+    fn lfo_values(synth: &mut GmSynth, blocks: usize, frames: usize) -> Vec<f32> {
+        let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
+        (0..blocks)
+            .map(|_| {
+                synth.process(&mut left, &mut right, STOPPED);
+                synth.analysis()[LIVE_LFO]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sample_and_hold_takes_a_new_value_each_cycle_inside_its_range() {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(32, 0.0); // the fastest rate: a quarter beat, 125 ms at 120 BPM
+        synth.set_parameter(34, 1.0);
+        synth.set_setting(LFO_MODE, 1.0);
+        synth.set_setting(LFO_LOW, 0.25);
+        synth.set_setting(LFO_HIGH, 0.75);
+        synth.note_on(60, 1.0, 0.5);
+        // 300 blocks of 1000 frames: 6 s, 48 cycles.
+        let values = lfo_values(&mut synth, 300, 1000);
+        assert!(
+            values.iter().all(|v| (-0.5..=0.5).contains(v)),
+            "{values:?}"
+        );
+        let mut distinct = values.clone();
+        distinct.dedup();
+        assert!(distinct.len() >= 20, "{} steps", distinct.len());
+        // Held between steps: far fewer changes than blocks.
+        assert!(distinct.len() < 100);
+    }
+
+    #[test]
+    fn a_note_random_lfo_changes_at_each_note_and_holds_between_them() {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_setting(LFO_MODE, 2.0);
+        synth.set_setting(LFO_LOW, 0.0);
+        synth.set_setting(LFO_HIGH, 1.0);
+        let mut held = Vec::new();
+        for key in [48, 52, 55, 59, 62] {
+            synth.note_on(key, 1.0, 0.5);
+            let during = lfo_values(&mut synth, 6, 500);
+            assert!(
+                during.windows(2).all(|w| w[0] == w[1]),
+                "held while the note sounds"
+            );
+            held.push(during[0]);
+        }
+        let mut distinct = held.clone();
+        distinct.dedup();
+        assert!(distinct.len() >= 4, "{held:?}");
+        assert!(held.iter().all(|v| (-1.0..=1.0).contains(v)));
+    }
+
+    #[test]
+    fn the_original_lfo_shape_mode_is_untouched_by_the_random_modes() {
+        let mut shape = GmSynth::new(RATE);
+        let mut mode = GmSynth::new(RATE);
+        mode.set_setting(LFO_MODE, 1.0);
+        mode.set_setting(LFO_MODE, 0.0);
+        for synth in [&mut shape, &mut mode] {
+            synth.set_parameter(32, 0.0);
+            synth.set_parameter(34, 1.0);
+            synth.note_on(60, 1.0, 0.5);
+        }
+        // Mode 0 sounds as before, wherever the other modes have been.
+        let a = lfo_values(&mut shape, 30, 700);
+        let b = lfo_values(&mut mode, 30, 700);
+        assert_eq!(a, b);
     }
 
     #[test]

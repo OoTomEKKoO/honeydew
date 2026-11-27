@@ -140,6 +140,7 @@ fn put(fields: &[Field], settings: &HashMap<u32, f32>, out: &mut [u8]) {
 /// Extends `out` with zeros so that each field `settings` gives a non-default value fits: Honeydew's own fields sit
 /// after a format's original bytes, and a blob only grows to hold one once it is used.
 fn grow(fields: &[Field], settings: &HashMap<u32, f32>, out: &mut Vec<u8>) {
+    let before = out.len();
     for field in fields {
         let end = field.at + field.width();
         if out.len() < end
@@ -148,6 +149,13 @@ fn grow(fields: &[Field], settings: &HashMap<u32, f32>, out: &mut Vec<u8>) {
                 .is_some_and(|&v| !v.is_nan() && v != field.default)
         {
             out.resize(end, 0);
+        }
+    }
+    // The bytes the growth added hold the fields in between at their defaults, not at zero: a blob that reaches a later
+    // field must not turn an earlier one whose default is not 0 into 0.
+    for field in fields {
+        if field.at >= before && field.at + field.width() <= out.len() {
+            field.write(field.default, out);
         }
     }
 }
@@ -202,7 +210,8 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 /// GMSynth (2), 20 bytes: OSC `A`/`B` (`1.1`/`1.2`), MOD `PB RANGE` (`6.1`, round(3v) of `1 smt`, `2 smt`,
 /// `7 smt`, `Oct`), `MW AMOUNT` (`7`) and `MW DEST` (`6.2`, int(2v) of `Filter`, `LFO`, `Osc. Mod.`).
 /// Honeydew's own `FILTER EXTRA` (`#6.3`: `Off`, `BP`, `Notch`, `Comb`) follows as a `u32` at byte 20 and `FM RANGE`
-/// (`#3.2`: `x1`, `x4`, `x8`, `x16`) at byte 24, each written only once it is not its first item, so a song that never
+/// (`#3.2`: `x1`, `x4`, `x8`, `x16`) at byte 24, the LFO's `MODE` (`#6.5`: `Shape`, `S&H`, `Note`) at 28 and the random
+/// range's `LOW` and `HIGH` (0…1 each) at 32 and 36, each written only once it is not its default, so a song that never
 /// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
     f("waveA", 0, 21100, Index(29), 0.0),
@@ -212,6 +221,9 @@ pub(crate) const GMSYNTH: &[Field] = &[
     f("MW DEST", 16, 36200, Trunc(3), 2.0),
     f("FILTER EXTRA", 20, 16300, Index(4), 0.0),
     f("FM RANGE", 24, 32100, Index(4), 0.0),
+    f("LFO MODE", 28, 65100, Index(3), 0.0),
+    f("LFO LOW", 32, 65200, Norm, 0.0),
+    f("LFO HIGH", 36, 65300, Norm, 1.0),
 ];
 const GMSYNTH_NEW: [u8; 20] = le_words([0, 0, bits(1.0 / 3.0), bits(0.5), bits(1.0)]);
 
@@ -832,6 +844,9 @@ mod tests {
                     (36200, 1.0),
                     (16300, 0.0),
                     (32100, 0.0),
+                    (65100, 0.0),
+                    (65200, 0.0),
+                    (65300, 1.0),
                 ]),
             ),
             (
@@ -1003,6 +1018,9 @@ mod tests {
                 (36200, 2.0),
                 (16300, 0.0),
                 (32100, 0.0),
+                (65100, 0.0),
+                (65200, 0.0),
+                (65300, 1.0),
             ]);
             m.extend(extra.iter().copied());
             Some(m)
@@ -1049,6 +1067,19 @@ mod tests {
         assert_eq!(&fm[..20], &off[..]);
         let loaded = settings_from_cstm(2, &fm).unwrap();
         assert_eq!((loaded[&32100], loaded[&16300]), (2.0, 0.0));
+        // The LFO's range reaches past fields with other defaults: HIGH (default 1) is not zeroed by growth to LOW.
+        let low = cstm_from_settings(2, &map([(65200, 0.25)]), Some(&off)).unwrap();
+        let loaded = settings_from_cstm(2, &low).unwrap();
+        assert_eq!(
+            (loaded[&65200], loaded[&65300], loaded[&65100]),
+            (0.25, 1.0, 0.0)
+        );
+        let high = cstm_from_settings(2, &map([(65300, 0.4)]), Some(&off)).unwrap();
+        let loaded = settings_from_cstm(2, &high).unwrap();
+        assert_eq!(
+            (loaded[&65300], loaded[&65200], loaded[&32100]),
+            (0.4, 0.0, 0.0)
+        );
         // A hostile value is clamped into the list.
         let wild = cstm_from_settings(2, &map([(16300, 99.0)]), Some(&off)).unwrap();
         assert_eq!(settings_from_cstm(2, &wild).unwrap()[&16300], 3.0);

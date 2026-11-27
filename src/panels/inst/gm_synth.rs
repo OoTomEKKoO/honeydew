@@ -21,6 +21,10 @@ const PB_RANGE: &[&str] = &["1 smt", "2 smt", "7 smt", "Oct"];
 const MW_DEST: &[&str] = &["Filter", "LFO", "Osc. Mod."];
 /// Honeydew's FM depth range, a `CSTM` setting; `x1` is the original depth.
 const FM_RANGES: &[&str] = &["x1", "x4", "x8", "x16"];
+/// Honeydew's LFO modes, a `CSTM` setting: the original shapes, sample and hold, a new random value per note.
+const LFO_MODES: &[&str] = &["Shape", "S&H", "Note"];
+/// The LFO is in its original mode (the shape menu's).
+static LFO_SHAPED: Show = Show::Setting(65100, 0);
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
 const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
@@ -195,12 +199,25 @@ pub fn panel() -> Option<Panel> {
             // LFO
             tint(
                 with_side(
-                    picture(61100, lfo_display, 1.0),
+                    page([
+                        picture(61100, lfo_display, 1.6),
+                        // The random range, only while the LFO is random (S&H or Note).
+                        knobs(
+                            [
+                                knob(65200, "LOW").default(0.0),
+                                knob(65300, "HIGH").default(1.0),
+                            ],
+                            1.0,
+                        )
+                        .show(Show::Not(&LFO_SHAPED)),
+                    ]),
+                    // The menus above, the control (AMOUNT) at the foot, where the thumb is.
                     [
-                        knob(61000, "AMOUNT").p(34).h(Size::Flex(1.8)),
+                        spinner(65100, "MODE").items(LFO_MODES).compact(),
                         spinner(62000, "SHAPE").p(33).compact(),
                         spinner(63000, "DEST").p(35).compact(),
                         spinner(64000, "RATE").p(32).items_per_column(5).compact(),
+                        knob(61000, "AMOUNT").p(34).h(Size::Flex(1.8)),
                     ],
                 ),
                 Accent::Lfo,
@@ -236,6 +253,10 @@ const DISPLAY_CYCLES: f32 = 1.0;
 const DISPLAY_FILL: f32 = 0.72;
 /// A curve point per device pixel, at most this many.
 const DISPLAY_MAX_POINTS: usize = 900;
+/// The cycles the LFO display shows.
+const LFO_CYCLES: f32 = 2.0;
+/// The most cycles of A that A's picture spans, when a slow B modulates it.
+const MAX_A_CYCLES: f64 = 4.0;
 
 /// Osc A's wave display: its shape as modulated by B (ring, FM or sync, by the MOD page), scaled to its BALANCE share.
 fn wave_a(
@@ -295,13 +316,26 @@ fn curve_a(
         .copied()
         .unwrap_or(1.0);
     let mut restart = 0.0_f64;
-    // B is read around the middle of A's cycle, so that its influence is centred on the picture: B runs on over many
-    // cycles of A when it is slower, and a window that began at B's phase would show it sliding in from one side.
-    let phase_b_at = |t: f64| (t - 0.5) * ratio + offset;
+    // How many cycles of A the picture spans. One, unless B modulates A and is slower: B then runs over several cycles of
+    // A (that is the sound of a low modulator: a slow wobble, not a changed shape), so the window opens to as many cycles
+    // as B's cycle lasts, at most [`MAX_A_CYCLES`], and the picture shows A's cycles changing.
+    let modulated = match kind {
+        0 | 1 => amount > 0.001,
+        2 => true,
+        _ => false,
+    };
+    let cycles_shown = if modulated {
+        (1.0 / ratio).clamp(1.0, MAX_A_CYCLES)
+    } else {
+        1.0
+    };
+    // B is read around the middle of the window, so that its influence is centred on the picture and a slow B does not
+    // slide in from one side.
+    let phase_b_at = |t: f64| (t - cycles_shown / 2.0) * ratio + offset;
     let mut wraps = phase_b_at(0.0).floor() as i64;
     (0..=steps)
         .map(|i| {
-            let t = f64::from(DISPLAY_CYCLES) * i as f64 / steps as f64;
+            let t = cycles_shown * i as f64 / steps as f64;
             let phase_b = phase_b_at(t);
             let b = read_cycle(b, phase_b.rem_euclid(1.0) as f32);
             match kind {
@@ -547,6 +581,29 @@ fn filter_display(
             text.gamma_multiply(0.45),
         );
     }
+    // The spectrum of what the synth is playing, behind the response: the bands of its live analysis, on the same log
+    // axis, rising from the bottom, so that the filter's shape is seen in the sound it shapes.
+    if let Some(slab) = crate::panels::live_analysis(ui, module.instance_id)
+        && slab.len() >= honeydew_audio::gmsynth::LIVE_LEN
+    {
+        let bands = &slab[honeydew_audio::gmsynth::LIVE_BANDS..honeydew_audio::gmsynth::LIVE_LEN];
+        let log_band = (FILTER_HZ.1 / FILTER_HZ.0).ln() / bands.len() as f32;
+        let points: Vec<Pos2> = bands
+            .iter()
+            .enumerate()
+            .map(|(k, level)| {
+                let hz = FILTER_HZ.0 * (log_band * (k as f32 + 0.5)).exp();
+                pos2(x_of(hz), inner.bottom() - level * inner.height() * 0.92)
+            })
+            .collect();
+        fill_curve(
+            ui,
+            points,
+            inner.bottom(),
+            text.gamma_multiply(0.5),
+            t * 0.75,
+        );
+    }
     let steps = curve_points(cx, inner);
     let freqs: Vec<f32> = (0..=steps)
         .map(|i| FILTER_HZ.0 * (FILTER_HZ.1 / FILTER_HZ.0).powf(i as f32 / steps as f32))
@@ -651,14 +708,17 @@ fn env_display(
     fill_curve(ui, points, bottom, ink, t * 1.25);
 }
 
-/// The LFO display: two cycles of its shape, as tall as its AMOUNT (below the middle line when the amount is negative).
+/// The LFO display. In the original mode: [`LFO_CYCLES`] cycles of its shape, as tall as its AMOUNT (below the middle line
+/// when the amount is negative). In `S&H`: a staircase of random steps (a stand-in for the values it will take, drawn
+/// between the range's ends), in `Note`: one held level; both over a faint band for the range LOW … HIGH. A running dot
+/// shows where the LFO is now, at the value it really has.
 fn lfo_display(
     ui: &mut Ui,
     cx: &UiCtx,
     _: Id,
     rect: Rect,
     module: &mut ModuleInstance,
-    _: &mut PanelState,
+    state: &mut PanelState,
     ink: Color32,
 ) -> Vec<usize> {
     let Some(inner) = well(ui, cx, rect) else {
@@ -666,29 +726,90 @@ fn lfo_display(
     };
     let t = cx.m.t();
     let param = |p: usize| module.params.get(p).copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    let setting = |key: u32, default: f32| state.settings.get(&key).copied().unwrap_or(default);
+    let mode = (setting(65100, 0.0) as usize).min(2);
+    let (low, high) = (
+        setting(65200, 0.0).clamp(0.0, 1.0),
+        setting(65300, 1.0).clamp(0.0, 1.0),
+    );
+    let (low, high) = (low.min(high), low.max(high));
     let amount = 2.0 * param(34) - 1.0;
-    let values = honeydew_audio::gmsynth::lfo_preview(param(33), 2.0, curve_points(cx, inner));
     let mid = inner.center().y;
     let amp = inner.height() / 2.0 * 0.85 * amount;
-    let last = (values.len() - 1) as f32;
-    let points: Vec<Pos2> = values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            pos2(
-                inner.left() + inner.width() * i as f32 / last,
-                mid - v * amp,
-            )
-        })
-        .collect();
-    ui.painter().line_segment(
+    let x_at = |f: f32| inner.left() + inner.width() * f;
+    let painter = ui.painter();
+    painter.line_segment(
         [pos2(inner.left(), mid), pos2(inner.right(), mid)],
         Stroke::new(
             t * 0.5,
             cx.theme.colors.text.to_color32().gamma_multiply(0.15),
         ),
     );
-    fill_curve(ui, points, mid, ink, t * 1.25);
+    let points: Vec<Pos2> = match mode {
+        0 => {
+            let values = honeydew_audio::gmsynth::lfo_preview(
+                param(33),
+                LFO_CYCLES,
+                curve_points(cx, inner),
+            );
+            let last = (values.len() - 1) as f32;
+            (values.iter().enumerate())
+                .map(|(i, v)| pos2(x_at(i as f32 / last), mid - v * amp))
+                .collect()
+        }
+        _ => {
+            // The range the random values lie in, as a band; and what a run of them could look like in it.
+            let (top, bottom) = (
+                mid - (-1.0 + 2.0 * high) * amp,
+                mid - (-1.0 + 2.0 * low) * amp,
+            );
+            let band = Rect::from_x_y_ranges(inner.x_range(), top.min(bottom)..=top.max(bottom));
+            painter.rect_filled(band, 0.0, ink.gamma_multiply(0.12));
+            let steps = if mode == 1 { 8 } else { 1 };
+            // A fixed pseudo-random run (a golden-ratio sequence), the same every time the picture is drawn.
+            let value_at = |k: usize| {
+                let u = (0.37 + k as f32 * 0.618_034).fract();
+                -1.0 + 2.0 * (low + (high - low) * u)
+            };
+            let mut points = Vec::new();
+            for k in 0..steps {
+                let y = mid - value_at(k + 1) * amp;
+                points.push(pos2(x_at(k as f32 / steps as f32), y));
+                points.push(pos2(x_at((k + 1) as f32 / steps as f32), y));
+            }
+            points
+        }
+    };
+    let base = if mode == 0 { mid } else { inner.bottom() };
+    fill_curve(ui, points, base, ink, t * 1.25);
+    // The running dot, at the value the LFO has now. In the original mode on its curve, in each cycle shown; in the
+    // random modes on a line across the picture at the held value, moving with the phase.
+    if let Some(slab) = crate::panels::live_analysis(ui, module.instance_id)
+        && slab.len() >= honeydew_audio::gmsynth::LIVE_LEN
+    {
+        let (value, phase) = (
+            slab[honeydew_audio::gmsynth::LIVE_LFO],
+            slab[honeydew_audio::gmsynth::LIVE_PHASE],
+        );
+        let painter = ui.painter();
+        let y = mid - value * amp;
+        let ring = Stroke::new(t, cx.theme.colors.text.to_color32());
+        if mode == 0 {
+            for cycle in 0..LFO_CYCLES as usize {
+                let at = pos2(x_at((cycle as f32 + phase) / LFO_CYCLES), y);
+                painter.circle_filled(at, t * 3.0, ink);
+                painter.circle_stroke(at, t * 3.0, ring);
+            }
+        } else {
+            painter.line_segment(
+                [pos2(inner.left(), y), pos2(inner.right(), y)],
+                Stroke::new(t * 0.75, ink.gamma_multiply(0.6)),
+            );
+            let at = pos2(x_at(if mode == 1 { phase } else { 0.5 }), y);
+            painter.circle_filled(at, t * 3.0, ink);
+            painter.circle_stroke(at, t * 3.0, ring);
+        }
+    }
     Vec::new()
 }
 
@@ -790,8 +911,8 @@ const SHAPES: &str = "Beast · Crunch · Double Spike · Digital · Dirt · Elec
 pub const REFERENCE: Reference = Reference {
     size: [16.96, 7.49],
     // A and B on Beast; PB RANGE, MW DEST and MW AMOUNT from the CSTM defaults (items 1 and 2, 0.5); FX slot 1; and
-    // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1.
-    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (81100, 0.0)],
+    // Honeydew's own FILTER EXTRA (16300) on Off and FM RANGE (32100) on x1 and the LFO's MODE, LOW and HIGH (65100–65300).
+    settings: &[(16300, 0.0), (21100, 0.0), (21200, 0.0), (32100, 0.0), (36100, 1.0), (36200, 2.0), (37000, 0.5), (65100, 0.0), (65200, 0.0), (65300, 1.0), (81100, 0.0)],
     cases: &[
         Case {
             name: "FILTER",
@@ -907,10 +1028,28 @@ pub const REFERENCE: Reference = Reference {
             rows: &[
                 STRIP,
                 row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 6.04]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
-                row(61000, Widget::Knob, "AMOUNT", [13.27, 1.37, 3.69, 1.98]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
-                row(62000, Widget::Spinner, "SHAPE", [13.27, 3.59, 3.69, 1.10]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(63000, Widget::Spinner, "DEST", [13.27, 4.93, 3.69, 1.10]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
-                row(64000, Widget::Spinner, "RATE", [13.27, 6.27, 3.69, 1.10]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(65100, Widget::Spinner, "MODE", [13.27, 1.37, 3.69, 0.86]).items("Shape · S&H · Note").margins(0.12, 0.0, 0.12, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.47, 3.69, 0.87]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(63000, Widget::Spinner, "DEST", [13.27, 3.58, 3.69, 0.87]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(64000, Widget::Spinner, "RATE", [13.27, 4.69, 3.69, 0.87]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(61000, Widget::Knob, "AMOUNT", [13.27, 5.80, 3.69, 1.56]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
+            ],
+            ..Case::DEFAULT
+        },
+        Case {
+            name: "LFO random",
+            tab: 5,
+            settings: &[(65100, 1.0)],
+            rows: &[
+                STRIP,
+                row(61100, Widget::Display, "", [0.10, 1.35, 13.07, 3.64]).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Lfo)),
+                row(65200, Widget::Knob, "LOW", [0.00, 5.09, 6.63, 2.40]).ink(Ink::Accent(Accent::Lfo)),
+                row(65300, Widget::Knob, "HIGH", [6.63, 5.09, 6.64, 2.40]).ink(Ink::Accent(Accent::Lfo)),
+                row(65100, Widget::Spinner, "MODE", [13.27, 1.37, 3.69, 0.86]).items("Shape · S&H · Note").margins(0.12, 0.0, 0.12, 0.0).ink(Ink::Accent(Accent::Lfo)),
+                row(62000, Widget::Spinner, "SHAPE", [13.27, 2.47, 3.69, 0.87]).p(33).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(63000, Widget::Spinner, "DEST", [13.27, 3.58, 3.69, 0.87]).p(35).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(64000, Widget::Spinner, "RATE", [13.27, 4.69, 3.69, 0.87]).p(32).items_per_column(5).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0),
+                row(61000, Widget::Knob, "AMOUNT", [13.27, 5.80, 3.69, 1.56]).p(34).ink(Ink::Accent(Accent::Lfo)).margins(0.12, 0.0, 0.12, 0.0).h(Size::Flex(1.8)),
             ],
             ..Case::DEFAULT
         },
@@ -1047,6 +1186,25 @@ mod curve_tests {
                 "{i}: {left} and {right} are not mirror images"
             );
         }
+    }
+
+    #[test]
+    fn a_slow_b_shows_the_cycles_of_a_changing_not_one_unchanged_cycle() {
+        let (a, b) = cycles(SAW, SINE);
+        let mut state = PanelState::default();
+        state.settings.insert(32100, 2.0); // FM RANGE x8
+        let mut module = module(0.4, 0.2); // FM, 20 %
+        module.params[11] = 0.0; // PITCH B -24: two octaves down
+        let n = 800;
+        let curve = curve_a(&a, &b, &module, &state, n);
+        // The window opens to four cycles of A, 200 points each: the first and the last differ, as they sound.
+        let (first, last) = (&curve[..200], &curve[600..800]);
+        let difference: f32 = first.iter().zip(last).map(|(x, y)| (x - y).abs()).sum();
+        assert!(difference > 5.0, "{difference}");
+        // A fast B keeps the window at one cycle.
+        module.params[11] = 0.75;
+        let fast = curve_a(&a, &b, &module, &state, 200);
+        assert_eq!(fast.len(), 201);
     }
 
     #[test]

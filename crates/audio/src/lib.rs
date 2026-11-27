@@ -40,6 +40,7 @@ pub mod sequencer;
 pub mod sfz;
 pub mod slicer;
 pub mod soundfont;
+pub mod spectrum;
 mod spreader;
 pub mod stream;
 pub mod supersaw;

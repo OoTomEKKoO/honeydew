@@ -206,7 +206,10 @@ mod tests {
                 gmsynth::MW_AMOUNT,
                 gmsynth::MW_DEST,
                 gmsynth::FILTER_EXTRA,
-                gmsynth::FM_RANGE
+                gmsynth::FM_RANGE,
+                gmsynth::LFO_MODE,
+                gmsynth::LFO_LOW,
+                gmsynth::LFO_HIGH
             ]
         );
     }

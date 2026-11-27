@@ -1283,8 +1283,8 @@ impl AudioRenderer for SongAudioEngine {
         self.held_meters[index]
     }
 
-    /// An effect's analysis after the last segment, or a note effect's after the last render call.
-    /// Empty for a channel or an instrument.
+    /// An effect's or an instrument's analysis after the last segment, or a note effect's after the last render call.
+    /// Empty for a channel and for an instrument without one.
     fn analysis(&self, index: usize) -> &[f32] {
         if !self.note_slabs[index].is_empty() {
             return &self.note_slabs[index];
@@ -1292,7 +1292,12 @@ impl AudioRenderer for SongAudioEngine {
         let key = self.meter_keys[index];
         match key.instance_id {
             ..=0 => &[],
-            id => (self.audio.effect(key.channel, id)).map_or(&[], |effect| effect.analysis()),
+            id => match self.audio.effect(key.channel, id) {
+                Some(effect) => effect.analysis(),
+                None => (self.instruments.get(key.channel))
+                    .and_then(|modules| modules.iter().find(|(i, _)| *i == id))
+                    .map_or(&[], |(_, module)| module.analysis()),
+            },
         }
     }
 
