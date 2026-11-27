@@ -142,6 +142,22 @@ zu weit verloren gehen.
 Wunsch des Besitzers (Tag 3): Das Trance Delay ordentlich aufpimpen. Sehr wichtig: Timing in **3/16** (dotted eighth bzw.
 drei Sechzehntel), außerdem eine übersichtlichere, modernere Oberfläche im eigenen Farbthema. Erst nach den P-Locks.
 
+## 3h. Stand Ende Tag 3 (APK `9ef5e41`, Build erfolgreich, 76 Test-Gruppen grün)
+
+Fertig und zum Testen auf dem Handy: Mod-Matrix (4 Routen, Off-Ziel), Modulationsring, Modulate-Dialog (Tipp auf Wert =
+Tastatur), Filter-DRIVE, P-Locks im Piano Roll (3 Tabs, Drum-Editor-Look, Wert springt), Doppeltipp-Reset mit zweitem Finger,
+**Wavetable-Oszillatoren** (`crates/audio/src/wavetable.rs`, `wavetable_factory.rs`; 12 Werks-Tabellen, POS A/B als Parameter 75/76,
+3D-Vorschau `ridge` in `panels/inst/gm_synth.rs`, Matrix-Ziele Table Pos A/B).
+
+Nächste Schritte (Reihenfolge nach Feedback des Besitzers):
+1. Feedback zur Wavetable-APK abwarten (3D-Ansicht lesbar? Morphen glatt? 7 Regler auf OSC-Seite noch bedienbar?).
+2. **WAV-Import für Wavetables** (Dateiauswahl wie 3x-Osc-Custom-Welle, Daten im Song speichern; vorher mit Fragen-Panel klären).
+3. **P-Locks**: Locks folgen verschobenen/kopierten Noten; Drum-Editor/Step-Sequencer; Kanalregler; Wert-Anzeige beim Malen.
+4. Modulationsring: Live-Punkt; EG-Quelle pro Stimme.
+5. Filter-Charakter-Modi (nach DRIVE-Feedback).
+6. **Trance Delay** aufwerten (3/16-Timing, moderne UI im Farbthema), siehe 3g.
+7. Upstream-Check (`daijro/honeydew`) vor größeren Vorhaben, Änderungen gezielt übernehmen.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:
