@@ -2148,6 +2148,59 @@ fn shaped_automation_segments_round_trip_through_flm_and_default_ones_write_the_
 }
 
 #[test]
+fn parameter_locks_round_trip_through_flm_and_a_song_without_any_writes_the_same_bytes() {
+    let mut song = Song::default();
+    let li = song.channels[0].add_lane(LaneKind::Notes);
+    song.channels[0].lanes[li].add_clip(0, 4.0);
+    let plain = crate::flm::write(&song).unwrap();
+    assert!(!plain.windows(4).any(|w| w == b"HDLk"));
+    let cutoff = AutomationTarget {
+        instance_id: 3,
+        param: 21,
+    };
+    let pan = AutomationTarget {
+        instance_id: 0,
+        param: 1,
+    };
+    fn clip(song: &mut Song, lane: usize) -> &mut Clip {
+        &mut song.channels[0].lanes[lane].clips[0]
+    }
+    let c = clip(&mut song, li);
+    c.set_lock(128, 60, cutoff, 0.25);
+    c.set_lock(0, 64, pan, 1.5);
+    c.set_lock(128, 60, cutoff, 0.75);
+    c.set_lock(0, 64, cutoff, f32::NAN);
+    assert_eq!(
+        c.file.locks.len(),
+        2,
+        "one per note and parameter, none for NaN"
+    );
+    assert_eq!(
+        c.lock(128, 60, cutoff).unwrap().value,
+        0.75,
+        "the last value"
+    );
+    assert_eq!(c.lock(0, 64, pan).unwrap().value, 1.0, "clamped");
+    assert!(
+        c.file.locks.windows(2).all(|w| w[0].order() < w[1].order()),
+        "sorted"
+    );
+    let bytes = crate::flm::write(&song).unwrap();
+    assert_eq!(bytes.windows(4).filter(|w| *w == b"HDLk").count(), 1);
+    let read = crate::flm::read(&bytes).unwrap();
+    assert_eq!(
+        read.channels[0].lanes[li].clips[0].file.locks,
+        song.channels[0].lanes[li].clips[0].file.locks
+    );
+    // Removing the locks writes the bytes as before.
+    let c = clip(&mut song, li);
+    c.remove_lock(128, 60, cutoff);
+    c.remove_lock(0, 64, pan);
+    assert!(c.file.locks.is_empty());
+    assert_eq!(crate::flm::write(&song).unwrap(), plain);
+}
+
+#[test]
 fn midi_sends_are_saved_apart_and_go_with_their_target() {
     // An `HDMs`, which FL Studio Mobile skips as an unknown chunk, only on a channel with MIDI sends.
     let mut song = Song::default();

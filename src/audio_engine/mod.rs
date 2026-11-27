@@ -5,6 +5,7 @@ mod drums;
 mod generators;
 mod input;
 mod live;
+mod locks;
 mod merge;
 mod midi_sends;
 mod modulation;

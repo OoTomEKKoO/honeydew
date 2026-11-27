@@ -29,8 +29,8 @@ use crate::song::plugin::{self, PluginParam, PluginRef};
 use crate::song::points::{Shape, ShapeKind};
 use crate::song::{
     AutomationTarget, CHANNEL_ID_LIMIT, Channel, ChannelKind, Clip, ClipFileState, DrumGrid,
-    DrumKit, Event, KeyboardState, Lane, LaneKind, MetaState, MidiSend, Modulation, ModuleInstance,
-    PPQ, Raw, RawChunk, SamplerSlot, SendState, Song, SynthKind, TimeSig,
+    DrumKit, Event, KeyboardState, Lane, LaneKind, Lock, MetaState, MidiSend, Modulation,
+    ModuleInstance, PPQ, Raw, RawChunk, SamplerSlot, SendState, Song, SynthKind, TimeSig,
 };
 use honeydew_audio::dwp::Cstm;
 
@@ -1137,6 +1137,10 @@ impl Reader {
                     self.charge(2 * child.payload.len(), &child.path)?;
                     clip.file.shapes = shapes(child.payload);
                 }
+                b"HDLk" if matches!(kind, LaneKind::Notes | LaneKind::Drums) => {
+                    self.charge(2 * child.payload.len(), &child.path)?;
+                    clip.file.locks = locks(child.payload);
+                }
                 b"CLSm" => {
                     let (_, mut sample) = self.slot(&child)?;
                     *next_slot = (*next_slot + 1).min(MAX_ID);
@@ -1147,6 +1151,65 @@ impl Reader {
             }
         }
         Ok(clip)
+    }
+}
+
+/// An `HDLk` (`flm::write`): 20-byte records of u32 tick, u8 key, 3 reserved bytes, i32 instance id, i32 param, f32
+/// value. A value that is not a number is dropped, the others are clamped into 0…1; the result is sorted with one lock
+/// per note and parameter (the last record wins), whatever order the file holds them in.
+fn locks(payload: &[u8]) -> Vec<Lock> {
+    let record = |r: &[u8; 20]| {
+        let word = |at: usize| u32::from_le_bytes([r[at], r[at + 1], r[at + 2], r[at + 3]]);
+        let value = f32::from_bits(word(16));
+        value.is_finite().then(|| Lock {
+            tick: word(0),
+            key: r[4],
+            target: AutomationTarget {
+                instance_id: word(8) as i32,
+                param: word(12) as i32,
+            },
+            value: value.clamp(0.0, 1.0),
+        })
+    };
+    let mut locks: Vec<Lock> = payload
+        .as_chunks::<20>()
+        .0
+        .iter()
+        .filter_map(record)
+        .collect();
+    // A stable sort keeps the file's order among equals, so the last one is the one that stays.
+    locks.sort_by_key(Lock::order);
+    locks.reverse();
+    locks.dedup_by_key(|l| l.order());
+    locks.reverse();
+    locks
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::*;
+
+    #[test]
+    fn a_damaged_lock_chunk_reads_as_far_as_it_can() {
+        // Records that are cut short or hold no number are dropped; values clamp; the last record of a note wins.
+        let record = |tick: u32, key: u8, value: f32| {
+            let mut r = tick.to_le_bytes().to_vec();
+            r.extend([key, 0, 0, 0]);
+            r.extend(3_i32.to_le_bytes());
+            r.extend(21_i32.to_le_bytes());
+            r.extend(value.to_le_bytes());
+            r
+        };
+        let mut payload = [
+            record(10, 1, 0.5),
+            record(10, 1, 2.0),
+            record(0, 9, f32::NAN),
+        ]
+        .concat();
+        payload.extend([1, 2, 3]);
+        let locks = locks(&payload);
+        assert_eq!(locks.len(), 1);
+        assert_eq!((locks[0].tick, locks[0].key, locks[0].value), (10, 1, 1.0));
     }
 }
 

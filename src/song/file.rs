@@ -479,6 +479,9 @@ pub struct ClipFileState {
     /// `HDSh` (Honeydew's own): on an automation clip, the shape of each segment that is not the straight line, by the
     /// tick of its point (sorted, one per tick: the last point at a tick starts the segment that has a length).
     pub shapes: Vec<(u32, honeydew_audio::automation::Shape)>,
+    /// `HDLk` (Honeydew's own): on a notes or drums clip, the parameter locks of its notes ([`super::Lock`]), sorted by
+    /// [`super::Lock::order`].
+    pub locks: Vec<super::Lock>,
 }
 
 impl Default for ClipFileState {
@@ -491,6 +494,7 @@ impl Default for ClipFileState {
             header_extra: Vec::new(),
             raw_events: Raw::default(),
             shapes: Vec::new(),
+            locks: Vec::new(),
         }
     }
 }

@@ -77,6 +77,32 @@ impl AutomationTarget {
     }
 }
 
+/// A parameter lock (Honeydew's own): while the note (`tick`, `key`) of a notes or drums clip plays, the parameter
+/// `target` of its channel takes `value` (normalised, 0…1) in place of the knob, as Elektron's parameter locks do. The
+/// engine puts the knob's own value back when the note ends. Kept in [`super::ClipFileState::locks`], sorted by
+/// [`Lock::order`], one per note and parameter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lock {
+    /// The note's start, in ticks inside the clip, as its event's `pos`.
+    pub tick: u32,
+    /// The note's key (a drum hit's pad).
+    pub key: u8,
+    pub target: AutomationTarget,
+    pub value: f32,
+}
+
+impl Lock {
+    /// The sort and uniqueness key: the note, then the parameter.
+    pub fn order(&self) -> (u32, u8, i32, i32) {
+        (
+            self.tick,
+            self.key,
+            self.target.instance_id,
+            self.target.param,
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lane {
     pub kind: LaneKind,
@@ -176,6 +202,44 @@ pub struct Clip {
 pub const MAX_PLAYS_A_PIXEL: f64 = 128.0;
 
 impl Clip {
+    /// The lock of the note (`tick`, `key`) on `target`, if there is one.
+    pub fn lock(&self, tick: u32, key: u8, target: AutomationTarget) -> Option<Lock> {
+        let order = (tick, key, target.instance_id, target.param);
+        let locks = &self.file.locks;
+        locks
+            .binary_search_by_key(&order, Lock::order)
+            .ok()
+            .map(|i| locks[i])
+    }
+
+    /// Locks `target` of the note (`tick`, `key`) to `value` (clamped to 0…1; a value that is not a number removes
+    /// the lock), replacing the note's lock of that parameter.
+    pub fn set_lock(&mut self, tick: u32, key: u8, target: AutomationTarget, value: f32) {
+        if !value.is_finite() {
+            return self.remove_lock(tick, key, target);
+        }
+        let lock = Lock {
+            tick,
+            key,
+            target,
+            value: value.clamp(0.0, 1.0),
+        };
+        let locks = &mut self.file.locks;
+        match locks.binary_search_by_key(&lock.order(), Lock::order) {
+            Ok(i) => locks[i] = lock,
+            Err(i) => locks.insert(i, lock),
+        }
+    }
+
+    /// Removes the lock of `target` on the note (`tick`, `key`).
+    pub fn remove_lock(&mut self, tick: u32, key: u8, target: AutomationTarget) {
+        let order = (tick, key, target.instance_id, target.param);
+        let locks = &mut self.file.locks;
+        if let Ok(i) = locks.binary_search_by_key(&order, Lock::order) {
+            locks.remove(i);
+        }
+    }
+
     /// The loop length in ticks. `None`: there is no loop, and nothing plays. A loop shorter than one tick is none
     /// (a file may hold any length, and one that short would repeat millions of times on a screen); the playlist and
     /// the audio bridge both go by this.

@@ -201,6 +201,15 @@ pub(super) fn actions(
         }
         super::audio_clips::actions(song, channel, sample_rate, tempo_bpm, &mut actions)?;
         if !instruments.is_empty() {
+            super::locks::actions(
+                song,
+                channel,
+                instruments,
+                end_beat,
+                sample_rate,
+                tempo_bpm,
+                &mut actions,
+            )?;
             super::slides::actions(
                 song,
                 channel,

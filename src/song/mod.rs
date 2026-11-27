@@ -23,7 +23,7 @@ pub use file::{
     SET_EDITED, SET_LOADED, SendState, SlotFileState, SongFileState,
 };
 pub use lane::MAX_PLAYS_A_PIXEL;
-pub use lane::{AutomationTarget, Clip, DrumGrid, Event, Lane, LaneKind};
+pub use lane::{AutomationTarget, Clip, DrumGrid, Event, Lane, LaneKind, Lock};
 pub use rack::{CommonParams, ModuleInstance, Rack};
 pub use section::Section;
 pub use tempo::{

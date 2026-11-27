@@ -600,6 +600,21 @@ fn write_clip(
             Ok(())
         })?;
     }
+    // Honeydew's parameter locks: an `HDLk`, which a reader that does not know it skips as an unknown chunk (and plays the
+    // notes unlocked). 20-byte records of u32 tick, u8 key, 3 reserved zero bytes, i32 instance id, i32 param, f32 value.
+    if matches!(kind, LaneKind::Notes | LaneKind::Drums) && !clip.file.locks.is_empty() {
+        writer.chunk(*b"HDLk", |writer| {
+            for lock in &clip.file.locks {
+                writer.u32(lock.tick)?;
+                writer.u8(lock.key)?;
+                writer.raw(&[0, 0, 0])?;
+                writer.raw(&lock.target.instance_id.to_le_bytes())?;
+                writer.raw(&lock.target.param.to_le_bytes())?;
+                writer.raw(&lock.value.to_le_bytes())?;
+            }
+            Ok(())
+        })?;
+    }
     write_raw(writer, &clip.file.unknown_chunks)
 }
 
