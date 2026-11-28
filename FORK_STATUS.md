@@ -3,14 +3,18 @@
 Übergabe zwischen Sitzungen. **Zuerst lesen, wenn eine neue Sitzung beginnt.** `CLAUDE.md` hat die Arbeitsregeln und die
 Architektur; diese Datei den Stand. Nach jedem Schritt hier nachtragen. Stand: Ende Tag 2 (Commit `e5e5780` und danach).
 
-## 0. Aktueller Stand (Tag 4, 28.11.)
+## 0. Aktueller Stand (Tag 4, 28.11., Ende der Sitzung)
 
-- Letzter bewährter Build: Commit `7162300` (Graphite-Theme, Wavetables, Matrix, P-Locks, Untermenüs). Rücksprung-Punkte und die
-  Anleitung zum Zurückgehen: **`STAENDE.md`**.
-- Lokal in Arbeit, noch nicht gebaut (siehe 3k): Regler im Bogen-Stil mit massivem Körper (Wert nur in der Drag-Blase), Aufräumen.
-- Als Nächstes (Reihenfolge vom Besitzer entschieden, Plan in 4e/4f): **1. WAV-Import** (4e Teil C), **2. Zeichenmodus im Automations-Editor**
-  (Finger und Stift, Glatt/Stepped), **3. Automation in der Zeitleiste bearbeiten**, zunächst nur mit Punkten.
-- Regel: nichts bauen, bevor der Besitzer es freigibt; zwischendurch kurze Zwischenstände.
+- **Neuester Build:** Commit `748ffc6` (Lauf 46173979799, grün, APK-Artifact `honeydew-android-debug`). Enthält Paket 6 komplett
+  (siehe 3l, 3m): Design-Feinschliff, WAV-Import für Wavetables, Zeichenmodus im Automations-Editor. Vom Besitzer noch **nicht
+  getestet/bestätigt**. Letzter bestätigter Stand in `STAENDE.md` (Anleitung zum Zurückgehen steht dort); `f9471bc` und
+  `748ffc6` sind dort noch einzutragen, sobald der Besitzer sie gut findet.
+- Alle Tests, Clippy und fmt waren vor dem Push grün. Arbeitsbaum sauber.
+- **Als Nächstes** (Plan in 4f): Automation direkt in der Zeitleiste bearbeiten, zunächst nur Punkte (erst aufklappbare Spur-Anzeige,
+  dann Punkte setzen/ziehen; vorher die Geometrie vereinheitlichen). Zeichnen in der Zeitleiste und Latch/Aufnahme kommen später.
+  Danach die Liste „später“ in 4d/3g/4e/4f.
+- Zuerst Feedback des Besitzers zur APK `748ffc6` einholen (Zeichenmodus: Schalter oben rechts im Raster, Strichvorschau).
+- Regel: nach neuem Feedback Plan einmal abstimmen, dann bauen und APK-Link melden (siehe CLAUDE.md).
 
 ## 1. Worum es geht
 
