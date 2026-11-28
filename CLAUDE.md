@@ -155,5 +155,5 @@ Bildern rendern (`src/ui/offscreen.rs` ist ein Testgerüst dafür) und selbst an
 
 ## Stand und Roadmap
 
-Siehe **`FORK_STATUS.md`** (Stand, Entscheidungen, nächste Schritte, Rückmeldungen). Zu Beginn jeder Sitzung zuerst lesen und
+Siehe **`FORK_STATUS.md`** (Abschnitt 0 genügt für den Start; Verlauf/Erledigtes liegt in `FORK_ARCHIV.md`, nur bei Bedarf lesen) (Stand, Entscheidungen, nächste Schritte, Rückmeldungen). Zu Beginn jeder Sitzung zuerst lesen und
 nach jedem Schritt dort nachtragen.
