@@ -1036,6 +1036,27 @@ mod tests {
         }
     }
 
+    /// A route turned on and then off again is saved as off: the blob keeps its length and reads back with the source off,
+    /// whichever field is switched, and the same through a second save.
+    #[test]
+    fn gmsynth_routes_turned_off_save_as_off() {
+        let on = map([(66010, 1.0), (66011, 8.0), (66012, 0.9)]);
+        let blob = cstm_from_settings(2, &on, None).unwrap();
+        for off in [
+            [(66010, 0.0), (66011, 8.0), (66012, 0.9)],
+            [(66010, 1.0), (66011, 0.0), (66012, 0.9)],
+            [(66010, 1.0), (66011, 8.0), (66012, 0.5)],
+        ] {
+            let saved = cstm_from_settings(2, &map(off), Some(&blob)).unwrap();
+            let back = settings_from_cstm(2, &saved).unwrap();
+            for (key, value) in off {
+                assert_eq!(back[&key], value, "{key}");
+            }
+            let again = cstm_from_settings(2, &back, Some(&saved)).unwrap();
+            assert_eq!(settings_from_cstm(2, &again).unwrap(), back);
+        }
+    }
+
     /// A wavetable item (29 and up) is kept in the oscillator's `waveA` / `waveB` field and reads back; one past the
     /// menu clamps to the last item.
     #[test]

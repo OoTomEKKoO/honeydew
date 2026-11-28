@@ -209,6 +209,10 @@ const MOD_THRESHOLD: f32 = 0.001;
 const SMOOTHING: f32 = 0.01;
 /// The cutoff base S follows its target at 0.001 per sample.
 const CUTOFF_SMOOTHING: f32 = 0.001;
+
+/// One-pole smoothing per sample of the wavetable positions (about 4 ms): a position that jumps (a knob dragged fast, an LFO
+/// stepped once per control block) glides to its new value instead of switching the waveform in one sample, which clicks.
+const POSITION_SMOOTHING: f32 = 0.005;
 /// KBD tracking per key around key 64: 1.0008 oct/oct.
 const KBD_PER_KEY: f32 = 0.008_996_4;
 const KBD_CENTRE: f32 = 64.0;
@@ -619,6 +623,8 @@ struct Voice {
     comb: CombLines,
     /// The cutoff the filter had at the last sample ([`LIVE_CUTOFF`]).
     last_cutoff: f32,
+    /// The wavetable positions of OSC A and B as the voice reads them now, gliding to [`Control`]'s ([`POSITION_SMOOTHING`]).
+    position: [f32; 2],
     noise: u32,
 }
 
@@ -675,6 +681,8 @@ impl Voice {
             (c.cutoff + c.kbd * (pitch - KBD_CENTRE) * KBD_PER_KEY + c.mw_filter).clamp(0.0, 1.0);
         if self.snap {
             self.s = self.s_target;
+            // A new note starts on the positions as they are, not gliding from where the last note left them.
+            self.position = [c.pos_a, c.pos_b];
             self.snap = false;
         }
     }
@@ -692,10 +700,6 @@ impl Voice {
         amount: &[f32],
         bus: &mut [[f32; BLOCK]; 2],
     ) {
-        let (table_a, table_b) = (
-            wave_a.reader(self.table_a, c.pos_a),
-            wave_b.reader(self.table_b, c.pos_b),
-        );
         // VEL scales the EG depth for the Filter and Osc. Mod. destinations only.
         let velocity = (self.velocity + self.slide[2]).clamp(0.0, 1.0);
         let depth = if c.velocity_depth { velocity } else { 1.0 };
@@ -711,6 +715,13 @@ impl Voice {
             let active = m > MOD_THRESHOLD;
             let (fm, ring) = (active && c.mod_kind == FM, active && c.mod_kind == RING);
             let (mut left, mut right, mut b0) = (0.0, 0.0, 0.0);
+            // The wavetable positions glide to their targets, and the readers follow them sample by sample.
+            self.position[0] += POSITION_SMOOTHING * (c.pos_a - self.position[0]);
+            self.position[1] += POSITION_SMOOTHING * (c.pos_b - self.position[1]);
+            let (table_a, table_b) = (
+                wave_a.reader(self.table_a, self.position[0]),
+                wave_b.reader(self.table_b, self.position[1]),
+            );
             for k in 0..c.copies {
                 let b = table_b.read(self.phase_b[k], dither);
                 // FM: A is read at φ_A + (B + 1)·m cycles.
@@ -2586,6 +2597,154 @@ mod tests {
             l
         };
         assert_ne!(run(1.0), run(0.5), "a route at the centre is no modulation");
+    }
+
+    #[test]
+    fn a_route_turned_off_leaves_nothing_behind() {
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32 + 1.0;
+        let run = |turn_off: &dyn Fn(&mut GmSynth)| {
+            let mut synth = GmSynth::new(RATE);
+            synth.set_parameter(21, 0.5);
+            synth.set_parameter(32, 0.0); // fast LFO
+            synth.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+            synth.set_setting(MOD_BASE + MOD_TARGET, cutoff);
+            synth.set_setting(MOD_BASE + MOD_AMOUNT, 1.0);
+            synth.note_on(60, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 2000], vec![0.0; 2000]);
+            for _ in 0..10 {
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            turn_off(&mut synth);
+            // The cutoff glides back for a moment, then rests on the knob.
+            for _ in 0..30 {
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            let rested: Vec<f32> = (0..20)
+                .map(|_| {
+                    synth.process(&mut l, &mut r, STOPPED);
+                    synth.analysis()[LIVE_CUTOFF]
+                })
+                .collect();
+            rested
+        };
+        let spread = |v: &[f32]| {
+            v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min)
+        };
+        for (name, off) in [
+            (
+                "source",
+                &(|s: &mut GmSynth| s.set_setting(MOD_BASE + MOD_SOURCE, 0.0))
+                    as &dyn Fn(&mut GmSynth),
+            ),
+            ("target", &|s: &mut GmSynth| {
+                s.set_setting(MOD_BASE + MOD_TARGET, 0.0)
+            }),
+            ("amount", &|s: &mut GmSynth| {
+                s.set_setting(MOD_BASE + MOD_AMOUNT, 0.5)
+            }),
+        ] {
+            let v = run(off);
+            assert!(spread(&v) < 1e-4, "{name}: still moving {v:?}");
+            assert!(
+                (v[0] - 0.5).abs() < 0.02,
+                "{name}: rests on the knob, not {}",
+                v[0]
+            );
+        }
+    }
+
+    #[test]
+    fn turning_any_route_off_returns_the_sound_to_the_unrouted_one() {
+        let run = |item: Option<usize>| {
+            let mut synth = GmSynth::new(RATE);
+            synth.set_parameter(32, 0.0); // fast LFO
+            synth.set_parameter(15, 0.3); // MOD AMOUNT up, so FM-type targets are heard
+            synth.note_on(60, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 2000], vec![0.0; 2000]);
+            if let Some(item) = item {
+                synth.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+                synth.set_setting(MOD_BASE + MOD_TARGET, item as f32);
+                synth.set_setting(MOD_BASE + MOD_AMOUNT, 1.0);
+            }
+            for _ in 0..10 {
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            synth.set_setting(MOD_BASE + MOD_SOURCE, 0.0);
+            let mut tail = Vec::new();
+            for block in 0..60 {
+                // The synth adds to its buffers, so each block starts from silence.
+                l.fill(0.0);
+                r.fill(0.0);
+                synth.process(&mut l, &mut r, STOPPED);
+                if block >= 40 {
+                    tail.extend_from_slice(&l);
+                }
+            }
+            tail
+        };
+        let plain = run(None);
+        for item in 1..=MOD_TARGETS.len() {
+            let routed = run(Some(item));
+            let name = MOD_TARGET_NAMES[item];
+            // Pitch-type targets leave the oscillator B another phase behind them while they run, and with the two
+            // oscillators ring modulated that is another wave (the phase between them is the sound); the others come back
+            // sample for sample.
+            if matches!(MOD_TARGETS[item - 1], 11 | 12) {
+                assert!(routed.iter().all(|x| x.is_finite()), "{name}");
+            } else {
+                let worst = (routed.iter().zip(&plain))
+                    .map(|(a, b)| (a - b).abs())
+                    .fold(0.0, f32::max);
+                assert!(
+                    worst < 1e-3,
+                    "target {item} ({name}) still colours the sound by {worst}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_jumping_table_position_glides_instead_of_clicking() {
+        // Harmonic Sweep is smooth everywhere (no edges), so any step in the output comes from the jump itself.
+        let item = TABLE_BASE + 4;
+        let mut synth = GmSynth::new(RATE);
+        prepare_setting(WAVE_A, item as f32);
+        synth.set_setting(WAVE_A, item as f32);
+        synth.set_parameter(21, 1.0); // CUTOFF open
+        synth.set_parameter(POS_A, 0.0);
+        synth.note_on(48, 1.0, 0.5);
+        let block = |synth: &mut GmSynth| {
+            let (mut l, mut r) = (vec![0.0; 2000], vec![0.0; 2000]);
+            synth.process(&mut l, &mut r, STOPPED);
+            l
+        };
+        let step = |v: &[f32]| {
+            v.windows(2)
+                .map(|w| (w[1] - w[0]).abs())
+                .fold(0.0, f32::max)
+        };
+        for _ in 0..4 {
+            block(&mut synth);
+        }
+        let steady = step(&block(&mut synth));
+        synth.set_parameter(POS_A, 1.0);
+        let after = step(&block(&mut synth));
+        // Unsmoothed, the wave would change by as much as the two frames differ somewhere in one sample.
+        let (first, last) = (
+            table_outline(item, 0, 256).unwrap(),
+            table_outline(item, 31, 256).unwrap(),
+        );
+        // (A single oscillator is heard at half its table's level.)
+        let jump = 0.5
+            * first
+                .iter()
+                .zip(&last)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f32::max);
+        assert!(
+            after < 0.5 * jump && after > steady,
+            "the jump {jump} is spread over a few milliseconds: step {after} after, {steady} steady"
+        );
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.

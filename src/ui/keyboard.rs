@@ -2,7 +2,7 @@
 
 use std::ops::RangeInclusive;
 
-use eframe::egui::{self, Align2, Color32, Id, Pos2, Rangef, Rect, Sense, vec2};
+use eframe::egui::{self, Align2, Color32, Id, Mesh, Pos2, Rangef, Rect, Sense, Shape, vec2};
 
 use crate::metrics::Metrics;
 use crate::settings::Settings;
@@ -442,6 +442,63 @@ pub fn let_go_at(ctx: &egui::Context, id: Id) {
 ///   `blackKeyDisabled` on a white root and other black keys, else `whiteKeyDisabled`; labels keep that ink as the key lights.
 /// - Not drawn: the grab inset (m = 0: nothing grabs the keys; the bar's scroll gesture is not built) and the range
 ///   borders of `showRangeIndexLabels`.
+/// `rect` filled with a vertical gradient from `top` to `bottom` (premultiplied colours, so a white and a black alpha
+/// blend as light and shade).
+fn gradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) {
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return;
+    }
+    let mut mesh = Mesh::default();
+    mesh.colored_vertex(rect.left_top(), top);
+    mesh.colored_vertex(rect.right_top(), top);
+    mesh.colored_vertex(rect.right_bottom(), bottom);
+    mesh.colored_vertex(rect.left_bottom(), bottom);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(Shape::mesh(mesh));
+}
+
+/// A theme's `keyShadow` look: a white key shaded from a faint light at its top to a darker foot; a black key's shadow
+/// on the white keys below and beside it, and the light its face catches towards the front.
+mod shade {
+    use super::{Color32, Rect, gradient};
+    use eframe::egui::{Painter, vec2};
+
+    /// A white key `body` (points): lit a little at the top, shaded towards the foot.
+    pub fn white(painter: &Painter, body: Rect) {
+        gradient(
+            painter,
+            body,
+            Color32::from_white_alpha(14),
+            Color32::from_black_alpha(64),
+        );
+    }
+
+    /// The shadow a black key `body` throws: a soft dark patch under its foot, a little wider than the key.
+    pub fn black_shadow(painter: &Painter, body: Rect, u: f32) {
+        let below = Rect::from_min_max(
+            body.left_bottom() - vec2(0.05 * u, 0.0),
+            body.right_bottom() + vec2(0.05 * u, 0.35 * u),
+        );
+        gradient(
+            painter,
+            below,
+            Color32::from_black_alpha(90),
+            Color32::from_black_alpha(0),
+        );
+    }
+
+    /// A black key's face `inner` (points): a faint light that grows towards the front edge.
+    pub fn black_face(painter: &Painter, inner: Rect) {
+        gradient(
+            painter,
+            inner,
+            Color32::from_white_alpha(4),
+            Color32::from_white_alpha(26),
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn paint(
     painter: &egui::Painter,
@@ -464,6 +521,7 @@ fn paint(
     ]
     .map(|c| c.to_color32());
     let fill = |r: Rect, color: Color32| painter.rect_filled(r / ppp, 0.0, color);
+    let shaded = cx.theme.options.key_shadow;
     let p = |midi: u8| press[usize::from(midi)].clamp(0.0, 1.0);
     let mix = |c: Color32, midi: u8| c.lerp_to_gamma(channel, p(midi));
     let is_root = |midi: u8| input.enabled && midi % 12 == input.lock.map_or(0, |l| l.0);
@@ -499,6 +557,9 @@ fn paint(
             };
             fill(r.body, mix(a, midi));
             fill(r.upper, mix(b, midi));
+            if shaded {
+                shade::white(painter, r.body / ppp);
+            }
             for sep in r.seps {
                 fill(sep, bg);
             }
@@ -508,10 +569,16 @@ fn paint(
             let (label, color) = if key.black {
                 let r = black_px(x(key), y, u, p(midi));
                 let b = if range { black } else { black_off };
+                if shaded {
+                    shade::black_shadow(painter, r.body / ppp, u / ppp);
+                }
                 fill(r.body, mix(if root { channel } else { b }, midi));
                 if range || sounding >> midi & 1 == 1 {
                     fill(r.border, bg);
                     fill(r.inner, mix(b, midi));
+                    if shaded {
+                        shade::black_face(painter, r.inner / ppp);
+                    }
                 }
                 (r.label, if root { white_off } else { black_off })
             } else {
@@ -2068,5 +2135,56 @@ mod tests {
                 want.into_iter().map(|(r, c)| (r, c.to_color32())).collect();
             assert_eq!(got, want, "ppp {ppp}");
         }
+    }
+
+    /// A theme's `keyShadow` draws the keys with shades (meshes: a gradient on each white key, a shadow and a lit face on
+    /// each black one); the flat theme draws none, and either way every key keeps its fill.
+    #[test]
+    fn the_key_shadow_option_adds_shades_and_the_flat_keyboard_has_none() {
+        let meshes = |shadow: bool| {
+            let ctx = egui::Context::default();
+            let screen = Rect::from_min_size(Pos2::ZERO, vec2(1170.0, 540.0));
+            let mut theme = theme_by_id(0);
+            theme.options.key_shadow = shadow;
+            let m = Metrics::from_pixels_per_point(1.0, DEFAULT_UI_SCALE);
+            let raw = RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let out = ctx.run(raw, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let cx = UiCtx {
+                        theme: &theme,
+                        m: &m,
+                    };
+                    keyboard(
+                        ui,
+                        Piano::from(KEYBOARD),
+                        &cx,
+                        Color32::WHITE,
+                        &Settings::default(),
+                        PLAY,
+                    );
+                });
+            });
+            let shapes = out.shapes;
+            let rects = shapes
+                .iter()
+                .filter(|c| matches!(c.shape, Shape::Rect(_)))
+                .count();
+            let meshes = shapes
+                .iter()
+                .filter(|c| matches!(c.shape, Shape::Mesh(_)))
+                .count();
+            (rects, meshes)
+        };
+        let (flat_rects, flat_meshes) = meshes(false);
+        let (shaded_rects, shaded_meshes) = meshes(true);
+        assert_eq!(flat_meshes, 0);
+        assert!(shaded_meshes > 20, "{shaded_meshes}");
+        assert_eq!(
+            flat_rects, shaded_rects,
+            "the same rectangles, the shades go over them"
+        );
     }
 }

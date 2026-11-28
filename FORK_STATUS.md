@@ -164,14 +164,23 @@ Auftrag des Besitzers (Referenz: Pigments-Screenshot): die ganze App soll diesem
 Regler. Entscheidungen: Umfang "Theme + Regler + Keyboard", Regler-Look nur im neuen Theme (Theme-Schalter), Build erst nach dem
 Wavetable-Test des Besitzers: dieser Stand ist nur lokal committet und nicht gepusht, bis der Besitzer es freigibt.
 
-- Neues Built-in-Theme **Graphite** (Nr. 9): dunkles Graphit (`#16181B` bis `#30353B`), Cyan-Akzent `#2CB5E8`, dunkle Tastatur
-  (weiß `#8A8F96`, schwarz `#1A1C1F`, gedrückte Tasten in der Kanalfarbe), `knobArc` an.
+- Neues Built-in-Theme **Graphite** (Nr. 9): dunkle Graphit-Flächen (`#17181B` bis `#33373D`) mit **unserer üblichen Akzentfarbe**
+  (nur Farben und Zeichenstil, kein Layout), dunkle Tastatur (weiß `#8B9097`, schwarz `#15171A`, gedrückte Tasten in der Kanalfarbe)
+  mit leichtem 3D-Schatten (`keyShadow`: Verlauf auf den Tasten, Schatten der schwarzen auf den weißen), `knobArc` an.
 - Neuer Theme-Schalter `knobArc` (`ThemeOptions.knob_arc`, JSON `knobArc`, Standard aus): Regler als dünner Wertebogen um einen
   dunklen Körper mit hellem Zeiger statt des klassischen Rings (`ui/widgets/knob.rs`, `paint_arc_knob`). Bogen vom Ruhepunkt
   (unipolar: Anfang, bipolar: Mitte) zum Wert in der Kanal-/Akzentfarbe, Spur dunkel; der Modulationsring liegt außerhalb.
   Gilt für Regler, Strip-Regler und Graph-Regler (alle laufen durch `dial`). Eigene Themes können `"knobArc": true` setzen.
 - Offen für die nächsten Design-Schritte (vom Besitzer noch nicht beauftragt): abgerundete Karten mit dünnem Rand, Titelzeilen in
   Großbuchstaben mit Akzent, Tabs mit farbiger Unterlinie, Wert unter dem Regler statt im Ring, Modulationsquellen-Leiste.
+
+## 3j. Korrekturen nach dem Wavetable-Test (Tag 4)
+
+- Knistern beim schnellen Durchsweepen: Die Position sprang pro Steuerblock/UI-Bild. Jetzt gleitet sie je Stimme über etwa 4 ms
+  (`POSITION_SMOOTHING`, ein neuer Ton startet direkt auf der Position). Test `a_jumping_table_position_glides_instead_of_clicking`.
+- "Modulation hängt nach": Die Matrix schaltet sauber ab (Test für alle 19 Ziele, CSTM-Speichern an/aus getestet). Wahrscheinlicher
+  Grund: die **LFO-Seite hat ihre eigene feste Route** (DEST und AMOUNT), die mit allen Matrix-Routen aus weiterläuft. Das Modulate-
+  Fenster nennt sie jetzt ("The LFO page also drives this knob (+40 %)"). Falls es weiter auftritt: genauen Ablauf erfragen.
 
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 

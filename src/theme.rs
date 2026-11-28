@@ -152,6 +152,9 @@ pub struct ThemeOptions {
     /// Honeydew's own: knobs draw as a thin value arc round a dark body with a pointer (the Pigments look) instead of the
     /// classic ring. A theme file that leaves it out has the classic knobs.
     pub knob_arc: bool,
+    /// Honeydew's own: the keyboard's keys are drawn with a soft vertical shade, a lit top edge on the black keys and the
+    /// black keys' shadow on the white ones, for a slightly raised look. Off: flat keys, as the original.
+    pub key_shadow: bool,
 }
 
 /// A fully resolved theme.
@@ -200,6 +203,7 @@ struct RawOptions {
     playlist_track_note_brightness: Option<f32>,
     playlist_track_background_transparency: Option<f32>,
     knob_arc: Option<bool>,
+    key_shadow: Option<bool>,
 }
 
 /// A file may leave out anything: the id and name too (an imported file is named after itself, [`import`]).
@@ -249,6 +253,7 @@ impl RawTheme {
                     .playlist_track_background_transparency
                     .unwrap_or(1.0),
                 knob_arc: o.knob_arc.unwrap_or(false),
+                key_shadow: o.key_shadow.unwrap_or(false),
             },
         }
     }
@@ -289,6 +294,7 @@ pub fn builtin_themes() -> Vec<Theme> {
                 playlist_track_note_brightness: opt(2),
                 playlist_track_background_transparency: opt(3),
                 knob_arc: None,
+                key_shadow: None,
             }),
         }
     };
@@ -361,20 +367,22 @@ pub fn builtin_themes() -> Vec<Theme> {
             Some([0xFFFFFF, 0x000000, 0xCCCCCC, 0x7C7C7C]),
             Some([1.00, 0.6439, 1.00, 0.1303]),
         ),
-        // Theme 9, Honeydew's own: a dark graphite with a cyan accent, a dark keyboard and arc knobs, after the look of
-        // modern wavetable synths. Its knobs are the one place `knob_arc` is on.
+        // Theme 9, Honeydew's own: dark graphite panels with our usual accent, a dark keyboard with shaded keys and arc
+        // knobs, after the look of modern wavetable synths. Colours and drawing style only, the layout is the app's.
         row(
             9,
             "Graphite",
-            [0x16181B, 0x1F2226, 0x262A2F, 0x30353B, 0xC4C9D0, 0x2CB5E8],
-            Some([0x8A8F96, 0x1A1C1F, 0x545960, 0x2C2F33]),
+            [0x17181B, 0x202226, 0x292C31, 0x33373D, 0xC9CDD3, ACCENT],
+            Some([0x8B9097, 0x15171A, 0x4F545B, 0x2A2D32]),
             Some([0.85, 0.55, 1.00, 0.20]),
         ),
     ]
     .into_iter()
     .map(RawTheme::resolve)
     .map(|mut theme| {
+        // The look options of the Graphite theme: arc knobs and shaded keys.
         theme.options.knob_arc = theme.id == 9;
+        theme.options.key_shadow = theme.id == 9;
         theme
     })
     .collect()

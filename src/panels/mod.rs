@@ -1015,7 +1015,7 @@ pub fn show(
     }
     // The modulation inspector floats above the card; its edits are settings, like the MATRIX page's.
     if module.type_id == modulation::GMSYNTH_TYPE {
-        for key in modulation::inspector(ui, cx, state, base) {
+        for key in modulation::inspector(ui, cx, state, &module.params, base) {
             if !edits.settings.contains(&key) {
                 edits.settings.push(key);
             }
