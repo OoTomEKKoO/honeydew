@@ -396,6 +396,49 @@ Reihenfolge innerhalb, weil jeder Schritt auf dem vorigen aufbaut:
   [DualArpPlus (Max for Live)](https://maxforlive.com/library/device/10150/dualarpplus).
   Ein Gerät, das "Snake" und Dual-Arp zugleich bietet, wurde nicht gefunden; "MDD Snake" bleibt für den Besitzer zu erklären.
 
+## 4e. Paket 5 (Tag 4, mit dem Besitzer abgestimmt): Verfeinerung + P-Lock-Folgen + WAV-Import, ein gemeinsamer Build
+
+Entscheidungen im Fragen-Panel: zuerst planen, dann alles zusammen bauen; ins Paket kommen **P-Locks folgen Noten** und
+**WAV-Import für Wavetables**; die Modulations-Kachelleiste im Pigments-Stil kommt **nicht** (die Ringe am Regler reichen). Auf die
+Frage zum LFO-Nachhängen antwortete der Besitzer: AMOUNT auf der LFO-Seite steht nicht in der Mitte, also ist es die feste
+Route der LFO-Seite (DEST + AMOUNT), nicht die Matrix.
+
+**Teil A: Graphite-Feinschliff und Modulationsanzeige (klein, klar)**
+- A1 Tastatur invertiert: die großen (weißen) Tasten dunkel, die kleinen (schwarzen) hell (Theme-Farben `whiteKey`/`blackKey`
+  vertauschen, Beschriftungsfarben prüfen). Schatten **von oben auf dem Tastenfeld** (ein Verlauf am oberen Rand des
+  Keyboard-Panels, als läge es unter dem Transport-Panel, leicht). Der Schatten der schwarzen Tasten entfällt. Die Verläufe auf den
+  einzelnen Tasten beim Test bewerten (bleiben nur, wenn sie gefallen).
+- A2 Fehler: Im Bogen-Stil wurde der Modulationsring nicht gezeichnet (`dial` kehrte vor `paint_modulation` zurück). Beheben und
+  testen.
+- A3 Live-Punkt: Die Engine meldet je Matrix-Ziel den aktuell modulierten Wert (Analyse-Slab `LIVE_*`, erweitert), die Regler
+  zeichnen einen Punkt in der Quellenfarbe, der mit der Modulation läuft, zusätzlich zum Bogen für die Reichweite.
+- A4 Die feste Route der LFO-Seite (und die des EG: DEST + AMOUNT) wird sichtbar: gleicher Ring am betroffenen Regler (LFO- bzw.
+  EG-Farbe) mit Live-Punkt, ein Hinweis-Streifen auf der MATRIX-Seite ("LFO-Seite: AMOUNT +40 % auf FLT") mit Knopf "Aus", und im
+  Modulate-Fenster ein Knopf "Clear page route". Später (offen): die feste Route ganz in die Matrix überführen.
+
+**Teil B: P-Locks folgen den Noten**
+- Locks hängen an (Tick, Taste); jede Notenänderung muss sie mitführen. Vorgehen in Stufen: (1) Operationen, die jede Note 1:1 abbilden
+  (Ziehen, Länge ändern, Transponieren, Quantisieren, Humanize, Verschieben mit den Tasten): vor dem Sortieren alt/neu je Note
+  zuordnen und die Lock-Schlüssel umschreiben; (2) Löschen (Locks fallen weg), Kopieren, Ausschneiden, Einfügen, Duplizieren (die
+  Zwischenablage trägt die Locks); (3) Clip-Operationen in der Playlist (Teilen, Kopieren, Schleifen): Locks gehören zum Clip und
+  werden mit ihm geteilt oder kopiert. Je Operation ein Test. Aufwand M bis L, weil das Piano Roll viele Pfade hat; vorher alle
+  Stellen auflisten, die `events` ändern (`src/ui/piano_roll/`, `src/ui/clips.rs`).
+
+**Teil C: WAV-Import für Wavetables und Single-Cycles**
+- C1 Daten: pro Oszillator ein freier Eintrag "Custom" im Menü (Item hinter den Werks-Tabellen); die Frames liegen im Song (neuer
+  Honeydew-Block im Modul, 16-Bit je Punkt, bis 256 Frames × 2048 = 1 MB), damit der Song allein genügt.
+- C2 Laden: Dateiauswahl wie bei der 3x-Osc-Custom-Welle (Sample-Picker), Decodieren mit dem vorhandenen Sample-Cache auf dem App-
+  Thread, Schneiden in Frames zu 2048 Punkten (Länge ein Vielfaches davon) oder als **Einzelzyklus** (eine kurze Datei = 1 Frame);
+  Bandbegrenzung und Lautstärke wie bei den Werks-Tabellen (`FrameTable::from_cycles`). Bei mehrdeutiger Länge ein Menü für die
+  Framegröße (Auto, 256, 512, 1024, 2048).
+- C3 Engine: neue Quelle "Custom" im `Source`-Typ, geteilte Tabelle über eine Registry (Schlüssel aus dem Inhalt), Audio-Thread nimmt
+  nur die gebaute Tabelle (kein Bauen oder Allokieren im Echtzeit-Thread).
+- C4 Tests: WAV-Bytes (synthetische Frames) → Tabelle, Speichern/Laden im Song, altes Song ohne Block lädt unverändert, kaputte/zu
+  kurze/zu lange Dateien, Echtzeit-Allokationstest.
+
+**Reihenfolge im Paket:** A (klein, sofort), dann B (Zuverlässigkeit), dann C (größter Brocken), ein Build am Ende; nach jedem Teil
+Tests, Clippy und lokaler Commit (Push erst am Ende, damit nur ein Build entsteht).
+
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
 - Letzte APK (Commit `3587d86`): Menüs in der Spalte am rechten Rand (besonders LFO, dort am niedrigsten), Envelope-Anzeigen

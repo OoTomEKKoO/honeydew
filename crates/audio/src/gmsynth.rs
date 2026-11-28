@@ -2747,6 +2747,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_note_random_or_sample_hold_route_turned_off_leaves_nothing_behind() {
+        let cutoff = MOD_TARGETS.iter().position(|&p| p == 21).unwrap() as f32 + 1.0;
+        for mode in [1.0, 2.0] {
+            let run = |routed: bool| {
+                let mut synth = GmSynth::new(RATE);
+                synth.set_parameter(21, 0.5);
+                synth.set_parameter(32, 0.0);
+                synth.set_setting(LFO_MODE, mode);
+                if routed {
+                    synth.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+                    synth.set_setting(MOD_BASE + MOD_TARGET, cutoff);
+                    synth.set_setting(MOD_BASE + MOD_AMOUNT, 1.0);
+                }
+                let (mut l, mut r) = (vec![0.0; 2000], vec![0.0; 2000]);
+                // A few notes while it is on, so the held value is somewhere off the centre.
+                for key in [60, 62, 64] {
+                    synth.note_on(key, 1.0, 0.5);
+                    synth.process(&mut l, &mut r, STOPPED);
+                    synth.note_off(key);
+                }
+                synth.set_setting(MOD_BASE + MOD_SOURCE, 0.0);
+                let mut cutoffs = Vec::new();
+                for key in [65, 67] {
+                    synth.note_on(key, 1.0, 0.5);
+                    for _ in 0..40 {
+                        synth.process(&mut l, &mut r, STOPPED);
+                    }
+                    cutoffs.push(synth.analysis()[LIVE_CUTOFF]);
+                    synth.note_off(key);
+                }
+                cutoffs
+            };
+            let (plain, routed) = (run(false), run(true));
+            for (a, b) in plain.iter().zip(&routed) {
+                assert!(
+                    (a - b).abs() < 0.01,
+                    "mode {mode}: {plain:?} against {routed:?}"
+                );
+            }
+        }
+    }
+
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.
     fn sample_hold_steps(item: f32, rate: f32, seconds: usize) -> usize {
         let mut synth = GmSynth::new(RATE);
