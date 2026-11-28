@@ -165,7 +165,7 @@ pub fn cycles_from_samples(samples: &[f32], frame_len: Option<usize>) -> Option<
         Some(n) => n.clamp(2, samples.len()),
         None => FRAME_LENGTHS
             .into_iter()
-            .find(|&n| samples.len() >= n && samples.len() % n == 0)
+            .find(|&n| samples.len() >= n && samples.len().is_multiple_of(n))
             .unwrap_or(if samples.len() <= SINGLE_CYCLE_MAX {
                 samples.len()
             } else {

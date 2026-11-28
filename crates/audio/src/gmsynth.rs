@@ -265,8 +265,61 @@ static SHAPES: [OnceLock<Arc<Wavetable>>; SLOTS] = [const { OnceLock::new() }; S
 static FACTORY: [OnceLock<Arc<FrameTable>>; wavetable_factory::NAMES.len()] =
     [const { OnceLock::new() }; wavetable_factory::NAMES.len()];
 
+/// The tables files gave, by id (from 1): built on the app thread when a module's data is first used, shared by every module
+/// that holds the same content, and read on the audio thread without a lock ([`table_by_id`]).
+const TABLE_SLOTS: usize = 64;
+static TABLES: [OnceLock<Arc<FrameTable>>; TABLE_SLOTS] = [const { OnceLock::new() }; TABLE_SLOTS];
+static TABLE_KEYS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+
+/// App thread: the id of the table of content `key`, built by `build` the first time (one table for every module that holds
+/// the content). `None` when it does not build, or when [`TABLE_SLOTS`] different tables are in use in this run.
+pub fn register_table(key: u64, build: impl FnOnce() -> Option<FrameTable>) -> Option<u32> {
+    let mut keys = TABLE_KEYS.lock().ok()?;
+    if let Some(i) = keys.iter().position(|&k| k == key) {
+        return Some(i as u32 + 1);
+    }
+    if keys.len() >= TABLE_SLOTS {
+        return None;
+    }
+    let table = build()?;
+    let i = keys.len();
+    TABLES[i].set(Arc::new(table)).ok()?;
+    keys.push(key);
+    Some(i as u32 + 1)
+}
+
+/// Any thread: table `id` ([`register_table`]); never builds, allocates or blocks.
+pub fn table_by_id(id: u32) -> Option<Arc<FrameTable>> {
+    TABLES
+        .get(usize::try_from(id).ok()?.checked_sub(1)?)?
+        .get()
+        .cloned()
+}
+
+/// App thread: the table of content `key` for a picture, as [`register_table`] makes it.
+pub fn custom_table(
+    key: u64,
+    build: impl FnOnce() -> Option<FrameTable>,
+) -> Option<Arc<FrameTable>> {
+    table_by_id(register_table(key, build)?)
+}
+
+/// One cycle of `table` at `position` (0…1) as the pictures draw it, 1024 values: the frames blended as the oscillator does.
+pub fn table_cycle(table: &FrameTable, position: f32) -> Vec<f32> {
+    let pair = table.pair(0, position);
+    (0..TABLE_LEN)
+        .map(|i| pair.read((i as u64 * (1 << 32) / TABLE_LEN as u64) as u32))
+        .collect()
+}
+
 /// The OSC A / B menu's items: the 29 classic shapes (0–28), then the built-in wavetables ([`TABLE_BASE`]…).
-pub const SOURCES: usize = SLOTS + wavetable_factory::NAMES.len();
+pub const SOURCES: usize = CUSTOM_ITEM + 1;
+/// The menu item `Custom`: the oscillator plays the wavetable its module took from a file ([`CUSTOM_A`], [`CUSTOM_B`]).
+pub const CUSTOM_ITEM: usize = SLOTS + wavetable_factory::NAMES.len();
+/// The settings that name the custom table of OSC A and B: its id from [`register_table`], 0 for none. They come from the
+/// module's `HDWt` data, not from its `CSTM`.
+pub const CUSTOM_A: u32 = 21300;
+pub const CUSTOM_B: u32 = 21400;
 /// The menu item of the first built-in wavetable.
 pub const TABLE_BASE: usize = SLOTS;
 /// The OSC A / B position params (Honeydew's own): where in its wavetable an oscillator reads, 0…1. A classic shape
@@ -376,6 +429,14 @@ fn cached_source(item: usize) -> Option<Source> {
         .get()
         .cloned()
         .map(Source::Frames)
+}
+
+/// App thread: built-in wavetable `item` as a table for the pictures; `None` for a classic shape and for `Custom`.
+pub fn factory_table(item: usize) -> Option<Arc<FrameTable>> {
+    match source(item)? {
+        Source::Frames(table) => Some(table),
+        Source::Shape(_) => None,
+    }
 }
 
 /// App thread: how many frames menu item `item` has when it is a wavetable (a classic shape has none), for the pictures.
@@ -930,6 +991,9 @@ pub struct GmSynth {
     serial: u64,
     wave_a: Option<Source>,
     wave_b: Option<Source>,
+    /// The menu items chosen for OSC A and B, and the custom tables their `Custom` items play ([`CUSTOM_A`], [`CUSTOM_B`]).
+    wave_item: [usize; 2],
+    custom: [Option<Arc<FrameTable>>; 2],
     filter: &'static FilterTable,
     /// Channel Pitch Bend v and mod wheel (CC #1) v.
     bend: f32,
@@ -995,6 +1059,8 @@ impl GmSynth {
             serial: 0,
             wave_a: shape(DEFAULT_SHAPE).map(Source::Shape),
             wave_b: shape(DEFAULT_SHAPE).map(Source::Shape),
+            wave_item: [DEFAULT_SHAPE; 2],
+            custom: [None, None],
             filter: FILTER_TABLE.get_or_init(FilterTable::build),
             bend: 0.5,
             wheel: 0.0,
@@ -1036,6 +1102,22 @@ impl GmSynth {
     }
 
     /// A new random LFO value between the range's ends (−1…1 over 0…1 each).
+    /// Oscillator `osc`'s source from its chosen item: a built shape or table, or its custom table; none (the voices
+    /// hold) while the item is missing.
+    fn resolve(&mut self, osc: usize) {
+        let item = self.wave_item[osc];
+        let source = if item >= CUSTOM_ITEM {
+            self.custom[osc].clone().map(Source::Frames)
+        } else {
+            cached_source(item)
+        };
+        *if osc == 0 {
+            &mut self.wave_a
+        } else {
+            &mut self.wave_b
+        } = source;
+    }
+
     fn random_lfo(&mut self) -> f32 {
         let u = (next(&mut self.rng) >> 8) as f32 / (1 << 24) as f32;
         let (low, high) = (
@@ -1825,14 +1907,18 @@ impl Instrument for GmSynth {
             WAVE_A | WAVE_B => {
                 let slot = value as usize;
                 debug_assert!(
-                    slot >= SOURCES || cached_source(slot).is_some(),
+                    slot >= CUSTOM_ITEM || cached_source(slot).is_some(),
                     "prepare_setting builds slot {slot} first"
                 );
-                *if key == WAVE_A {
-                    &mut self.wave_a
-                } else {
-                    &mut self.wave_b
-                } = cached_source(slot);
+                let osc = usize::from(key == WAVE_B);
+                self.wave_item[osc] = slot;
+                self.resolve(osc);
+            }
+            // A custom table by its id (0 none): the oscillator plays it while its item is `Custom`, in either order.
+            CUSTOM_A | CUSTOM_B => {
+                let osc = usize::from(key == CUSTOM_B);
+                self.custom[osc] = table_by_id(value as u32);
+                self.resolve(osc);
             }
             PB_RANGE => self.pb_range = PB_RANGES[(value as usize).min(PB_RANGES.len() - 1)],
             MW_AMOUNT => self.mw_amount = value.clamp(0.0, 1.0),
@@ -2577,11 +2663,12 @@ mod tests {
 
     #[test]
     fn every_menu_item_builds_and_a_missing_one_silences() {
-        for item in 0..SOURCES {
+        for item in 0..CUSTOM_ITEM {
             prepare_setting(WAVE_A, item as f32);
             assert!(cached_source(item).is_some(), "item {item}");
         }
-        assert!(cached_source(SOURCES).is_none());
+        // `Custom` has no table of its own (a module's file gives it), and nothing is past it.
+        assert!(cached_source(CUSTOM_ITEM).is_none() && cached_source(SOURCES).is_none());
         assert!(table_frames(TABLE_BASE).is_some_and(|n| n > 1));
         assert!(table_frames(0).is_none(), "a classic shape is no table");
         assert_eq!(table_outline(TABLE_BASE, 3, 64).map(|v| v.len()), Some(64));
@@ -2959,6 +3046,56 @@ mod tests {
                 "drive {drive} kind {kind} res {res} key {key}: {lit} bands still lit, output peak {peak}"
             );
         }
+    }
+
+    /// A table made from `cycles`, registered under `key`, and its id.
+    fn custom_id(key: u64, cycles: &[Vec<f32>]) -> u32 {
+        register_table(key, || FrameTable::from_cycles(cycles)).expect("registers")
+    }
+
+    #[test]
+    fn a_custom_table_plays_in_either_order_of_its_settings_and_is_shared_by_content() {
+        let saw: Vec<f32> = (0..512).map(|i| 2.0 * i as f32 / 512.0 - 1.0).collect();
+        let sine: Vec<f32> = (0..512).map(|i| (TAU * i as f32 / 512.0).sin()).collect();
+        let cycles = vec![sine, saw];
+        let id = custom_id(0xA11CE, &cycles);
+        assert_eq!(
+            custom_id(0xA11CE, &cycles),
+            id,
+            "the same content is the same table"
+        );
+        assert_ne!(custom_id(0xB0B, &cycles), id, "another content is another");
+        let play = |order: [(u32, f32); 2], pos: f32| {
+            let mut synth = GmSynth::new(RATE);
+            for (key, value) in order {
+                synth.set_setting(key, value);
+            }
+            synth.set_parameter(POS_A, pos);
+            synth.set_parameter(21, 1.0);
+            synth.note_on(48, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 4000], vec![0.0; 4000]);
+            synth.process(&mut l, &mut r, STOPPED);
+            l
+        };
+        let item_first = [(WAVE_A, CUSTOM_ITEM as f32), (CUSTOM_A, id as f32)];
+        let id_first = [(CUSTOM_A, id as f32), (WAVE_A, CUSTOM_ITEM as f32)];
+        let (a, b) = (play(item_first, 0.0), play(id_first, 0.0));
+        assert!(a.iter().any(|x| x.abs() > 0.05), "it plays");
+        assert_eq!(a, b, "the order of the two settings does not matter");
+        assert_ne!(
+            a,
+            play(item_first, 1.0),
+            "the position morphs through its frames"
+        );
+        // `Custom` with no table, or with the id 0, is silent; and a table that is not chosen plays nothing.
+        let silent = play([(WAVE_A, CUSTOM_ITEM as f32), (CUSTOM_A, 0.0)], 0.0);
+        assert!(silent.iter().all(|x| *x == 0.0));
+        let other = play([(CUSTOM_A, id as f32), (WAVE_A, 0.0)], 0.0);
+        assert!(
+            other.iter().any(|x| x.abs() > 0.05),
+            "a classic shape plays as ever"
+        );
+        assert!(table_by_id(0).is_none() && table_by_id(9999).is_none());
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.

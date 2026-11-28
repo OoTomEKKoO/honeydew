@@ -34,6 +34,22 @@ pub fn rebuilds(type_id: u16, key: u32) -> bool {
     fields.iter().any(|field| field.n == key)
 }
 
+/// A GM Synth's custom tables as settings: for each oscillator that took a wavetable from a file, [`gmsynth::CUSTOM_A`] or
+/// [`gmsynth::CUSTOM_B`] with the table's id, built here on the app thread the first time its content is used (one table for
+/// every module holding the same content), or 0 (silent) when it cannot be built or too many tables are in use.
+pub(crate) fn custom_tables(file: &crate::song::ModuleFileState) -> Vec<(u32, f32)> {
+    let keys = [gmsynth::CUSTOM_A, gmsynth::CUSTOM_B];
+    (file.tables.iter().zip(keys))
+        .filter_map(|(table, key)| {
+            let table = table.as_ref()?;
+            let id = gmsynth::register_table(table.key, || {
+                honeydew_audio::wavetable::FrameTable::from_cycles(&table.cycles())
+            });
+            Some((key, id.map_or(0.0, |id| id as f32)))
+        })
+        .collect()
+}
+
 /// App thread: builds what a live `SetSetting` of `key` = `value` on a `type_id` module needs, before it is sent. A
 /// GMSynth's waveA and waveB are shape tables, built once per process (2 MB, a few ms) so the audio thread only takes
 /// the built one (`gmsynth::prepare_setting`).
@@ -64,6 +80,10 @@ pub(super) fn saved(song: &Song) -> Vec<(usize, i32, u32, f32)> {
                 continue;
             };
             let mut settings: Vec<(u32, f32)> = settings.into_iter().collect();
+            // A GM Synth's wavetables from files come with its settings, not from its blob.
+            if module.type_id == 2 {
+                settings.extend(custom_tables(&module.file));
+            }
             settings.sort_by_key(|&(key, _)| key);
             out.extend(
                 settings

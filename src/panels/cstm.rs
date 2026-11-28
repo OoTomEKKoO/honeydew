@@ -215,8 +215,8 @@ pub(crate) const DIRECTWAVE: &[Field] = &[f("PB range", 0, 11800, Semitones, 2.0
 /// `honeydew_audio::gmsynth::MOD_BASE`), each written only once it is not its default, so a song that never
 /// uses them keeps the original 20 bytes.
 pub(crate) const GMSYNTH: &[Field] = &[
-    f("waveA", 0, 21100, Index(41), 0.0),
-    f("waveB", 4, 21200, Index(41), 0.0),
+    f("waveA", 0, 21100, Index(42), 0.0),
+    f("waveB", 4, 21200, Index(42), 0.0),
     f("PB RANGE", 8, 36100, Items(4), 1.0),
     f("MW AMOUNT", 12, 37000, Norm, 0.5),
     f("MW DEST", 16, 36200, Trunc(3), 2.0),
@@ -1064,8 +1064,10 @@ mod tests {
         let blob = cstm_from_settings(2, &map([(21100, 35.0), (21200, 40.0)]), None).unwrap();
         let back = settings_from_cstm(2, &blob).unwrap();
         assert_eq!((back[&21100], back[&21200]), (35.0, 40.0));
-        let blob = cstm_from_settings(2, &map([(21100, 400.0)]), None).unwrap();
-        assert_eq!(settings_from_cstm(2, &blob).unwrap()[&21100], 40.0);
+        // `Custom` (item 41) is the last item; one past the menu clamps to it.
+        let blob = cstm_from_settings(2, &map([(21100, 41.0), (21200, 400.0)]), None).unwrap();
+        let back = settings_from_cstm(2, &blob).unwrap();
+        assert_eq!((back[&21100], back[&21200]), (41.0, 41.0));
     }
 
     /// A modulation route grows the blob to hold it, keeps the older bytes, and reads back.
@@ -1329,7 +1331,7 @@ mod tests {
         let blob = cstm_from_settings(2, &map([(21100, 99.0), (37000, -1.0)]), None).unwrap();
         assert_eq!(
             (blob[..4].to_vec(), blob[12..16].to_vec()),
-            (40u32.to_le_bytes().to_vec(), le(&[0.0]))
+            (41u32.to_le_bytes().to_vec(), le(&[0.0]))
         );
     }
 
@@ -1395,7 +1397,7 @@ mod tests {
             ] {
                 if let Some(s) = settings_from_cstm(type_id, &blob) {
                     assert!(
-                        s.values().all(|v| (0.0..=40.0).contains(v)),
+                        s.values().all(|v| (0.0..=41.0).contains(v)),
                         "type {type_id} {s:?}"
                     );
                 }

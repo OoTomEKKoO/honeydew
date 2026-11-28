@@ -320,15 +320,23 @@ pub fn tap_picker(
     } else {
         grouped_popup(ui, cx, c, items, current)
     };
-    if let Some(i) = picked
-        && i != current
-    {
-        *index = i;
-        response.mark_changed();
+    if let Some(i) = picked {
+        // The item the menu was last picked on, taken by [`picked_item`]: a pick of the item already shown is a pick too
+        // (the GM Synth's `Custom` asks for its file again), though it changes nothing.
+        ui.data_mut(|d| d.insert_temp(c.id.with("picked item"), i));
+        if i != current {
+            *index = i;
+            response.mark_changed();
+        }
     }
     let item = items.get(*index).copied().unwrap_or_default();
     response.widget_info(|| combo_info(c, item));
     response
+}
+
+/// The item that control `id`'s tap picker was picked on this frame, if any, taken ([`tap_picker`]).
+pub fn picked_item(ui: &Ui, id: Id) -> Option<usize> {
+    ui.data_mut(|d| d.remove_temp::<usize>(id.with("picked item")))
 }
 
 /// The ids of a grouped popup's rows that are not items: a group row is `GROUP_ROW + its number`, the way back is `BACK_ROW`.

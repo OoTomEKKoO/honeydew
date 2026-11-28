@@ -118,6 +118,10 @@ fn gm_synth(module: &ModuleInstance, sample_rate: f32) -> GmSynth {
         gmsynth::prepare_setting(key, value);
         synth.set_setting(key, value);
     }
+    // The wavetables its oscillators took from files.
+    for (key, value) in super::settings::custom_tables(&module.file) {
+        synth.set_setting(key, value);
+    }
     synth
 }
 
@@ -230,6 +234,62 @@ mod tests {
                 gmsynth::LFO_SYNC,
                 gmsynth::LFO_KEYSYNC
             ]
+        );
+    }
+
+    #[test]
+    fn a_gmsynth_with_a_wavetable_from_a_file_plays_it_when_built_and_saves_its_id_as_a_setting() {
+        use crate::panels::cstm::cstm_from_settings;
+        use crate::song::TableData;
+        use honeydew_audio::instrument::Instrument;
+        let cycle: Vec<f32> = (0..256)
+            .map(|i| (std::f32::consts::TAU * i as f32 / 256.0).sin())
+            .collect();
+        let table = TableData::new(
+            "Sine",
+            256,
+            honeydew_audio::wavetable::quantize(&[cycle.clone(), cycle]),
+        )
+        .unwrap();
+        let mut module = ModuleInstance::new(2, 1);
+        let item = gmsynth::CUSTOM_ITEM as f32;
+        module.file.custom_data = cstm_from_settings(
+            2,
+            &std::collections::HashMap::from([(gmsynth::WAVE_A, item)]),
+            None,
+        );
+        // With no table the `Custom` oscillator is silent; with one it plays.
+        let render = |module: &ModuleInstance| {
+            let mut synth = gm_synth(module, 48_000.0);
+            synth.note_on(60, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 2000], vec![0.0; 2000]);
+            synth.process(
+                &mut l,
+                &mut r,
+                honeydew_audio::ProcessContext {
+                    sample_rate: 48_000.0,
+                    tempo_bpm: 120.0,
+                    start_beat: 0.0,
+                    playing: false,
+                },
+            );
+            l.iter().fold(0.0_f32, |m, x| m.max(x.abs()))
+        };
+        assert_eq!(render(&module), 0.0);
+        module.file.tables[0] = Some(table);
+        assert!(render(&module) > 0.05);
+        // The id reaches the engine's settings of a song too, for a new engine to take over a running one.
+        let mut song = crate::song::Song::default();
+        song.add_channel(crate::song::ChannelKind::Synth(
+            crate::song::SynthKind::GmSynth,
+        ));
+        song.channels[1].rack.modules[0].file.tables[0] = module.file.tables[0].clone();
+        let saved = crate::audio_engine::settings::saved(&song);
+        let id = saved.iter().find(|s| s.2 == gmsynth::CUSTOM_A).map(|s| s.3);
+        assert!(id.is_some_and(|id| id >= 1.0), "{saved:?}");
+        assert!(
+            saved.iter().all(|s| s.2 != gmsynth::CUSTOM_B),
+            "no table for B"
         );
     }
 

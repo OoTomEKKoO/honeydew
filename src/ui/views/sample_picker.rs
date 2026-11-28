@@ -831,13 +831,21 @@ pub fn show_module(
         return Some(Nav::Close);
     };
     let make = |files: &ProjectFiles| module_picker(files, type_id);
-    // A 3x Osc's closes on a pick, so no sample strip: hidden, it waits for the pick to land. Any other previews its
-    // picks in the strip and loads the last one on its close.
+    // A 3x Osc's closes on a pick, so no sample strip: hidden, it waits for the pick to land, and so does a GM Synth's (its
+    // oscillator's wavetable file). Any other previews its picks in the strip and loads the last one on its close.
     let shape = type_id == three_osc::TYPE_ID;
+    let wavetable = type_id == GM_SYNTH;
     let into = |song: &Song, path: &Path, files: &ProjectFiles| {
         slicer_pick(song.find_module(channel, module)?, path, files)
     };
-    let (path, decoded) = match pick(state, ui, app, make, (!shape, shape, Some(type_id)), into) {
+    let (path, decoded) = match pick(
+        state,
+        ui,
+        app,
+        make,
+        (!(shape || wavetable), shape, Some(type_id)),
+        into,
+    ) {
         Shown::Open => return None,
         Shown::Picked(path, decoded) if !state.closing => {
             state.last = Some((path, decoded));
@@ -864,6 +872,22 @@ pub fn show_module(
     }
     let (shorthand, id) = (module_path(app.files, &path), module);
     let module = (app.song.channels.get_mut(channel)).and_then(|c| c.rack.get_mut(id));
+    // A GM Synth's pick is a wavetable: its frames go into the module for the oscillator that asked, one final edit.
+    if wavetable {
+        let table = decoded
+            .wave
+            .as_ref()
+            .and_then(|wave| table_from_sample(&wave.data, &path));
+        let Some(table) = table else {
+            return Some(outcome(Err(TOO_SHORT.into())));
+        };
+        if let Some(module) = module {
+            let osc = usize::from(module.file.table_target.min(1));
+            module.file.tables[osc] = Some(table);
+            app.song_edited(true);
+        }
+        return Some(Nav::Close);
+    }
     if let Some(module) = module
         && load_pick(module, &path, &[], shorthand).is_ok()
     {
@@ -878,6 +902,37 @@ pub fn show_module(
         app.song_edited(true);
     }
     Some(Nav::Close)
+}
+
+/// What a picked file that is no wavetable shows: too short to make a table.
+const TOO_SHORT: &str = "The file is too short for a wavetable.";
+
+/// The GM Synth's module type.
+const GM_SYNTH: u16 = 2;
+
+/// The wavetable a picked file's `sample` makes: its channels mixed to mono and cut into frames
+/// ([`honeydew_audio::wavetable::cycles_from_samples`]: 2048 a frame when the length says so, else one cycle), 16 bits a
+/// point, named by the file's name without its extension. `None` for a file too short.
+pub(crate) fn table_from_sample(
+    sample: &SampleData,
+    path: &Path,
+) -> Option<crate::song::TableData> {
+    let mono: Vec<f32> = match &sample.right {
+        Some(right) => sample
+            .left
+            .iter()
+            .zip(right.iter())
+            .map(|(l, r)| 0.5 * (l + r))
+            .collect(),
+        None => sample.left.to_vec(),
+    };
+    let cycles = honeydew_audio::wavetable::cycles_from_samples(&mono, None)?;
+    let name = path.file_stem()?.to_string_lossy();
+    crate::song::TableData::new(
+        &name,
+        cycles[0].len(),
+        honeydew_audio::wavetable::quantize(&cycles),
+    )
 }
 
 /// Answers the file request of the editor of module `module` on `channel` with `path` (`None`: cancelled) when it is a
@@ -1503,5 +1558,43 @@ mod tests {
         let full = kit.clone();
         assert_eq!(load_sample(&mut kit, None, &path, &files), None);
         assert_eq!(kit, full);
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn sample(left: Vec<f32>, right: Option<Vec<f32>>) -> SampleData {
+        SampleData {
+            sample_rate: 48_000,
+            left: left.into(),
+            right: right.map(Into::into),
+            meta: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_picked_file_becomes_a_wavetable_named_by_its_file() {
+        let wave: Vec<f32> = (0..3 * 2048)
+            .map(|i| (i as f32 * 0.01).sin() * 0.5)
+            .collect();
+        let table =
+            table_from_sample(&sample(wave.clone(), None), Path::new("/x/My Pad.wav")).unwrap();
+        assert_eq!(
+            (table.name.as_str(), table.frame_len, table.frames()),
+            ("My Pad", 2048, 3)
+        );
+        // Stereo is mixed to mono: opposite channels cancel, equal ones keep their level.
+        let neg: Vec<f32> = wave.iter().map(|v| -v).collect();
+        let cancelled =
+            table_from_sample(&sample(wave.clone(), Some(neg)), Path::new("a.wav")).unwrap();
+        assert!(cancelled.data.iter().all(|v| *v == 0));
+        let same =
+            table_from_sample(&sample(wave.clone(), Some(wave)), Path::new("a.wav")).unwrap();
+        assert_eq!(same.data, table.data);
+        // A file too short, and one with no name, make none.
+        assert!(table_from_sample(&sample(vec![0.3], None), Path::new("a.wav")).is_none());
+        assert!(table_from_sample(&sample(vec![0.0; 100], None), Path::new("")).is_none());
     }
 }

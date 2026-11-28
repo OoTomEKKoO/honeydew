@@ -2621,6 +2621,11 @@ impl RackPanel {
             (stored || screen_only(k)) && changed
         }));
         edits.sent.sort_by_key(|&(key, _)| key);
+        // `Custom` in a GM Synth oscillator's menu: the sample picker opens for that oscillator's wavetable file.
+        if let Some(osc) = shown.table_pick {
+            module.file.table_target = osc as u8;
+            edits.sample = true;
+        }
         if module.type_id == slicer::TYPE_ID {
             let (id, u) = (base.with("loop"), cx.m.u(1.0));
             let asked = slicer::asks_for_loop(ui, id, module, state, content, u, &shown.settings);

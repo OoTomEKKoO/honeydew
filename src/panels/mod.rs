@@ -717,6 +717,8 @@ pub struct Edits {
     pub pressed: Option<usize>,
     /// The param whose control's parameter menu picked an item, and the item.
     pub pick: Option<(usize, CtrlAction)>,
+    /// A GM Synth oscillator (0 `A`, 1 `B`) whose menu was picked on `Custom`: the card asks for its file.
+    pub table_pick: Option<usize>,
 }
 
 /// Draws `panel` for `module` in the content rect `rect` (points) in the `channel` colour, and returns what the user
@@ -1004,6 +1006,14 @@ pub fn show(
                 }
             }
         };
+        // `Custom` picked in an oscillator's menu asks for its wavetable file, also when it was already shown.
+        if module.type_id == modulation::GMSYNTH_TYPE
+            && let Some(item) = widgets::picked_item(ui, id)
+            && item == honeydew_audio::gmsynth::CUSTOM_ITEM
+            && matches!(leaf.id, 21100 | 21200)
+        {
+            edits.table_pick = Some(usize::from(leaf.id == 21200));
+        }
         if let Some(p) = leaf.param.filter(|_| bound) {
             let signal = widgets::signal(ui, id);
             if signal.pressed {

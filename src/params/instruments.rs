@@ -267,7 +267,11 @@ const GMS_PITCH_B: Display = Display::Stepped {
 pub(crate) static GMSYNTH_SOURCES: std::sync::LazyLock<Vec<&'static str>> =
     std::sync::LazyLock::new(|| {
         let tables = honeydew_audio::wavetable_factory::NAMES;
-        GMSYNTH_WAVESHAPES.iter().chain(&tables).copied().collect()
+        // `Custom`: the wavetable the module took from a file.
+        (GMSYNTH_WAVESHAPES.iter().chain(&tables))
+            .copied()
+            .chain(["Custom"])
+            .collect()
     });
 
 /// GMSynth's waveshapes, the OSC `A` and `B` menus in index order 0–28: the `CSTM` `waveA` /

@@ -44,6 +44,7 @@ const SOURCE_GROUPS: &[widgets::Group] = &[
     ("Table: Morph", &[29, 30, 31, 33, 36, 40]),
     ("Table: Formant & Bell", &[32, 39]),
     ("Table: Digital", &[34, 35, 37, 38]),
+    ("Custom file", &[41]),
 ];
 
 /// The colour of each page's tab, in the tabs' order: the selected tab shows its page's colour, the others pale.
@@ -490,26 +491,55 @@ fn wave_display(
         Stroke::new(t * 0.5, text.gamma_multiply(0.15)),
     );
     let param = |p: usize| module.params.get(p).copied().unwrap_or(0.5).clamp(0.0, 1.0);
+    // An oscillator's table when it plays a wavetable: a built-in one, or the file its module took ("Custom").
+    let table_of = |key: u32| -> Option<std::sync::Arc<honeydew_audio::wavetable::FrameTable>> {
+        let item = *state.settings.get(&key)? as usize;
+        if item == honeydew_audio::gmsynth::CUSTOM_ITEM {
+            let data = module.file.tables[usize::from(key == 21200)].as_ref()?;
+            return honeydew_audio::gmsynth::custom_table(data.key, || {
+                honeydew_audio::wavetable::FrameTable::from_cycles(&data.cycles())
+            });
+        }
+        honeydew_audio::gmsynth::factory_table(item)
+    };
+    // One cycle of an oscillator as it is read at its position: a classic shape or a table.
     let shape = |key: u32| {
         let slot = *state.settings.get(&key)?;
-        // A wavetable is drawn where its position param has it.
         let pos = param(if key == 21200 { 76 } else { 75 }).clamp(0.0, 1.0);
-        honeydew_audio::gmsynth::source_cycle(slot as usize, DISPLAY_HARMONICS, pos)
+        match table_of(key) {
+            Some(table) => Some(honeydew_audio::gmsynth::table_cycle(&table, pos)),
+            None => honeydew_audio::gmsynth::source_cycle(slot as usize, DISPLAY_HARMONICS, pos),
+        }
     };
     let slot = state
         .settings
         .get(&if b { 21200 } else { 21100 })
         .map(|&v| v as usize);
-    let (Some(own), Some(other)) = (
-        shape(if b { 21200 } else { 21100 }),
-        shape(if b { 21100 } else { 21200 }),
-    ) else {
+    let own_key = if b { 21200 } else { 21100 };
+    // `Custom` with no file is drawn empty and says so; the other oscillator may be anything.
+    let custom_name = (slot == Some(honeydew_audio::gmsynth::CUSTOM_ITEM)).then(|| {
+        module.file.tables[usize::from(b)]
+            .as_ref()
+            .map_or("no file yet".to_owned(), |t| t.name.clone())
+    });
+    let (Some(own), Some(other)) = (shape(own_key), shape(if b { 21100 } else { 21200 })) else {
+        if custom_name.is_some() {
+            caption(
+                ui,
+                cx,
+                inner,
+                if b { "B" } else { "A" },
+                slot,
+                ink,
+                custom_name.as_deref(),
+            );
+        }
         return;
     };
     // BALANCE: A takes 1 − |2v − 1| of it, B 2v − 1 (negative: B upside down).
     let balance = 2.0 * param(13) - 1.0;
     // A wavetable is drawn as its stack of frames in perspective, the oscillator's own frame in front of them.
-    if let Some(item) = slot.filter(|&i| i >= honeydew_audio::gmsynth::TABLE_BASE) {
+    if let Some(table) = table_of(own_key) {
         let position = param(if b { 76 } else { 75 });
         let share = if b {
             balance.abs()
@@ -517,8 +547,16 @@ fn wave_display(
             1.0 - balance.abs()
         };
         let ink = ink.gamma_multiply(0.25 + 0.75 * share);
-        ridge(ui, cx, inner, item, position, &own, ink);
-        caption(ui, cx, inner, if b { "B" } else { "A" }, slot, ink);
+        ridge(ui, cx, inner, &table, position, &own, ink);
+        caption(
+            ui,
+            cx,
+            inner,
+            if b { "B" } else { "A" },
+            slot,
+            ink,
+            custom_name.as_deref(),
+        );
         return;
     }
     let (share, sign) = if b {
@@ -565,7 +603,15 @@ fn wave_display(
     }
     painter.add(Shape::mesh(mesh));
     painter.add(Shape::line(points, Stroke::new(t * 1.25, ink)));
-    caption(ui, cx, inner, if b { "B" } else { "A" }, slot, ink);
+    caption(
+        ui,
+        cx,
+        inner,
+        if b { "B" } else { "A" },
+        slot,
+        ink,
+        custom_name.as_deref(),
+    );
 }
 
 /// How many of a wavetable's frames the 3D picture stacks, at most.
@@ -577,10 +623,16 @@ const RIDGE_POINTS: usize = 72;
 /// perspective, the first in front at the bottom and the last at the back, each higher, smaller and fainter than the one
 /// before; and the oscillator's own frame, `own` (one cycle at the `position`), as a bright line with a soft fill at its
 /// depth. The oscillator reads it there, so the picture moves with the POS knob, its automation and its modulation.
-fn ridge(ui: &Ui, cx: &UiCtx, inner: Rect, item: usize, position: f32, own: &[f32], ink: Color32) {
-    let Some(frames) = honeydew_audio::gmsynth::table_frames(item) else {
-        return;
-    };
+fn ridge(
+    ui: &Ui,
+    cx: &UiCtx,
+    inner: Rect,
+    table: &honeydew_audio::wavetable::FrameTable,
+    position: f32,
+    own: &[f32],
+    ink: Color32,
+) {
+    let frames = table.frames();
     let t = cx.m.t();
     let painter = ui.painter();
     let (depth_x, depth_y) = (inner.width() * 0.14, inner.height() * 0.40);
@@ -596,9 +648,9 @@ fn ridge(ui: &Ui, cx: &UiCtx, inner: Rect, item: usize, position: f32, own: &[f3
     };
     let lines = frames.min(RIDGE_LINES);
     let outlines: Vec<Vec<f32>> = (0..lines)
-        .filter_map(|k| {
+        .map(|k| {
             let frame = (k * (frames - 1) + (lines - 1) / 2) / (lines - 1).max(1);
-            honeydew_audio::gmsynth::table_outline(item, frame, RIDGE_POINTS)
+            table.outline(frame.min(frames - 1), RIDGE_POINTS)
         })
         .collect();
     let peak = (outlines.iter().flatten())
@@ -688,10 +740,25 @@ fn page_routes_text(params: &[f32]) -> String {
 
 /// The display's caption in its top left corner, the oscillator and its shape's name, and a small chevron at the top
 /// right that says a tap opens the list.
-fn caption(ui: &Ui, cx: &UiCtx, inner: Rect, osc: &str, slot: Option<usize>, ink: Color32) {
+fn caption(
+    ui: &Ui,
+    cx: &UiCtx,
+    inner: Rect,
+    osc: &str,
+    slot: Option<usize>,
+    ink: Color32,
+    custom: Option<&str>,
+) {
     let painter = ui.painter();
     let m = cx.m;
-    let name = slot.and_then(|i| WAVESHAPES.get(i)).copied().unwrap_or("");
+    // A custom table is named by its file (or says it has none yet).
+    let name = custom
+        .map(|file| format!("Custom: {file}"))
+        .or_else(|| {
+            slot.and_then(|i| WAVESHAPES.get(i))
+                .map(|s| (*s).to_owned())
+        })
+        .unwrap_or_default();
     let text = cx.theme.colors.text.to_color32();
     painter.text(
         inner.left_top() + vec2(m.t() * 2.0, m.t() * 1.0),
@@ -1162,7 +1229,7 @@ const SLOTS: Row = row(
 #[cfg(test)]
 const SHAPES: &str = "Beast · Crunch · Double Spike · Digital · Dirt · Electro · Filth · Fox · Funky · Grubby · Keys · \
     Liquid · Ogre · Rhodes · Saw Mean · Saw Retro · Saw · Silk · Sine · Smooth Sub · Square Retro · Square Smooth · \
-    Square · Strat · String · Throat · Triangle · Troll · Vocal · Sine to Saw · Saw to Square · Pulse Width · Vowels · Harmonic Sweep · FM Sweep · Hard Sync · Organ Bars · Bit Crush · Phase Scramble · Hollow Bell · Reed to Brass";
+    Square · Strat · String · Throat · Triangle · Troll · Vocal · Sine to Saw · Saw to Square · Pulse Width · Vowels · Harmonic Sweep · FM Sweep · Hard Sync · Organ Bars · Bit Crush · Phase Scramble · Hollow Bell · Reed to Brass · Custom";
 
 #[cfg(test)]
 #[rustfmt::skip]
