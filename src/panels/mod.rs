@@ -65,7 +65,7 @@ macro_rules! modules {
 pub mod build;
 pub(crate) mod cstm;
 mod fx;
-mod modulation;
+pub(crate) mod modulation;
 pub(crate) use fx::couple_param;
 pub(crate) use fx::couple_scale;
 pub(crate) use fx::live_analysis_fast;
@@ -758,6 +758,7 @@ pub fn show(
     // that reads another param catches up with an edit earlier in the same pass on the repaint the edit asks for.
     let params = module.params.clone();
     let linked = cc_links(ui);
+    let live_modulation = std::cell::OnceCell::new();
     let text_cx = TextCx {
         params: &params,
         ..text_env(ui)
@@ -815,7 +816,15 @@ pub fn show(
             modulation: leaf
                 .param
                 .filter(|_| module.type_id == modulation::GMSYNTH_TYPE)
-                .and_then(|p| modulation::modulation_of(state, &cx.theme.colors, p)),
+                .and_then(|p| {
+                    let mut ring =
+                        modulation::modulation_of(state, &cx.theme.colors, &module.params, p)?;
+                    // The live values are fetched only once a knob is modulated: they keep the card repainting.
+                    let slab =
+                        live_modulation.get_or_init(|| live_analysis_fast(ui, module.instance_id));
+                    ring.now = modulation::live_value(slab.as_deref(), p);
+                    Some(ring)
+                }),
             ..Control::new(id, rect, &label, ink, reset)
         };
         let text = |v: f32| match (leaf.value_fn, pspec) {

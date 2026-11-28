@@ -284,7 +284,12 @@ pub fn panel() -> Option<Panel> {
             ),
             // MATRIX: free routes of the LFO or the EG to any listed knob.
             tint(
-                page([line([route(0), route(1)]), line([route(2), route(3)])]),
+                page([
+                    // What the LFO and EG pages' own routes do, which keep working whatever the routes below say.
+                    display(66500).draw(page_routes_note).h(Size::U(0.9)),
+                    line([route(0), route(1)]),
+                    line([route(2), route(3)]),
+                ]),
                 Accent::Lfo,
             ),
             // VOICES
@@ -606,6 +611,46 @@ fn ridge(ui: &Ui, cx: &UiCtx, inner: Rect, item: usize, position: f32, own: &[f3
     }
     painter.add(Shape::mesh(mesh));
     painter.add(Shape::line(points, Stroke::new(t * 1.6, ink)));
+}
+
+/// The MATRIX page's note on the LFO and EG pages' own routes (their DEST and AMOUNT): they are not routes of this page and run
+/// with all of them off, so the page names each that is on, e.g. `LFO page: Cutoff +40 %`; empty when neither is.
+fn page_routes_note(
+    ui: &mut Ui,
+    cx: &UiCtx,
+    _: Id,
+    rect: Rect,
+    module: &mut ModuleInstance,
+    _: &mut PanelState,
+    ink: Color32,
+) -> Vec<usize> {
+    let notes = page_routes_text(&module.params);
+    if notes.is_empty() {
+        return Vec::new();
+    }
+    ui.painter().text(
+        rect.left_center() + vec2(cx.m.t() * 2.0, 0.0),
+        Align2::LEFT_CENTER,
+        notes,
+        cx.m.font_id(FontSize::Pt8),
+        ink.gamma_multiply(0.9),
+    );
+    Vec::new()
+}
+
+/// `LFO page: Cutoff +40 %   EG page: Mod Amount -25 %` for the page routes that are on (empty for none).
+fn page_routes_text(params: &[f32]) -> String {
+    use crate::panels::modulation::page_range;
+    let named = [(21, "Cutoff"), (15, "Mod Amount"), (1, "Level"), (2, "Pan")];
+    let mut out = Vec::new();
+    for (source, label) in [(1, "LFO page"), (2, "EG page")] {
+        for (knob, name) in named {
+            if let Some(range) = page_range(params, knob, source) {
+                out.push(format!("{label}: {name} {:+.0} %", 100.0 * range));
+            }
+        }
+    }
+    out.join("   ")
 }
 
 /// The display's caption in its top left corner, the oscillator and its shape's name, and a small chevron at the top
@@ -1246,18 +1291,19 @@ pub const REFERENCE: Reference = Reference {
             tab: 6,
             rows: &[
                 STRIP,
-                row(66000, Widget::Spinner, "FROM", [0.06, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66001, Widget::Spinner, "TO", [0.06, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66002, Widget::Knob, "AMOUNT", [4.70, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
-                row(66010, Widget::Spinner, "FROM", [8.54, 1.31, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66011, Widget::Spinner, "TO", [8.54, 2.81, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66012, Widget::Knob, "AMOUNT", [13.18, 1.31, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
-                row(66020, Widget::Spinner, "FROM", [0.06, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66021, Widget::Spinner, "TO", [0.06, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66022, Widget::Knob, "AMOUNT", [4.70, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
-                row(66030, Widget::Spinner, "FROM", [8.54, 4.43, 4.64, 1.50]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
-                row(66031, Widget::Spinner, "TO", [8.54, 5.93, 4.64, 1.50]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
-                row(66032, Widget::Knob, "AMOUNT", [13.18, 4.43, 3.72, 3.00]).ink(Ink::Accent(Accent::Lfo)),
+                row(66500, Widget::Display, "", [0.00, 1.25, 16.96, 0.90]).h(Size::U(0.9)).ink(Ink::Accent(Accent::Lfo)),
+                row(66000, Widget::Spinner, "FROM", [0.06, 2.21, 4.64, 1.27]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66001, Widget::Spinner, "TO", [0.06, 3.48, 4.64, 1.28]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66002, Widget::Knob, "AMOUNT", [4.70, 2.21, 3.72, 2.55]).ink(Ink::Accent(Accent::Lfo)),
+                row(66010, Widget::Spinner, "FROM", [8.54, 2.21, 4.64, 1.27]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66011, Widget::Spinner, "TO", [8.54, 3.48, 4.64, 1.28]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66012, Widget::Knob, "AMOUNT", [13.18, 2.21, 3.72, 2.55]).ink(Ink::Accent(Accent::Lfo)),
+                row(66020, Widget::Spinner, "FROM", [0.06, 4.88, 4.64, 1.27]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66021, Widget::Spinner, "TO", [0.06, 6.15, 4.64, 1.28]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66022, Widget::Knob, "AMOUNT", [4.70, 4.88, 3.72, 2.55]).ink(Ink::Accent(Accent::Lfo)),
+                row(66030, Widget::Spinner, "FROM", [8.54, 4.88, 4.64, 1.27]).items("Off · LFO · EG").ink(Ink::Accent(Accent::Lfo)),
+                row(66031, Widget::Spinner, "TO", [8.54, 6.15, 4.64, 1.28]).items("Off · Level · Pan · Osc B Pitch · Osc B Detune · Balance · Mod Amount · Noise · Cutoff · Resonance · Filter EG · EG Amount · LFO Amount · Choir Detune · Choir Stereo · FX 1 X · FX 1 Y · FX 2 X · Table Pos A · Table Pos B").items_per_column(6).ink(Ink::Accent(Accent::Lfo)),
+                row(66032, Widget::Knob, "AMOUNT", [13.18, 4.88, 3.72, 2.55]).ink(Ink::Accent(Accent::Lfo)),
             ],
             ..Case::DEFAULT
         },

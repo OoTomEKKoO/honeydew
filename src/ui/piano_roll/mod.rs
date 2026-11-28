@@ -939,7 +939,14 @@ impl PianoRoll {
         self.menus(ui, id, at, song, &mut actions, cx);
         // After the menus, which take Escape first.
         self.keys(ui, grid, cx, song, &mut actions);
-        // This frame's own edits are not outside changes.
+        // This frame's own edits are not outside changes, and the locks of the notes go with them: moved, transposed or
+        // quantized notes take their locks along, deleted ones drop them ([`locks::reconcile`]).
+        if let Some(clip) = self.clip_mut(song)
+            && clip.events != self.seen
+            && let Some(locks) = locks::reconcile(&self.seen, &clip.events, &clip.file.locks)
+        {
+            clip.file.locks = locks;
+        }
         let events = self.clip(song).map_or(&[][..], |c| &c.events);
         if events != self.seen.as_slice() {
             self.seen = events.to_vec();

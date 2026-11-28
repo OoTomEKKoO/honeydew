@@ -1920,6 +1920,30 @@ mod component {
         assert_eq!(rig.all, [DONE]);
     }
 
+    /// The locks go with their notes: deleting a note in the roll drops its locks and keeps those of the others.
+    #[test]
+    fn deleting_a_note_in_the_roll_drops_its_locks_and_keeps_the_others() {
+        use crate::song::AutomationTarget;
+        let mut rig = Rig::new(vec![n(128, 64.0, 70), n(256, 64.0, 60)]);
+        let target = AutomationTarget {
+            instance_id: 1,
+            param: 21,
+        };
+        let clip = &mut rig.song.channels[1].lanes[0].clips[0];
+        clip.set_lock(128, 70, target, 0.3);
+        clip.set_lock(256, 60, target, 0.8);
+        rig.hold(at(140.0, 70));
+        rig.release(at(140.0, 70));
+        let delete = rig.text("Delete").unwrap();
+        rig.tap(delete);
+        let locks = &rig.song.channels[1].lanes[0].clips[0].file.locks;
+        assert_eq!(locks.len(), 1);
+        assert_eq!(
+            (locks[0].tick, locks[0].key, locks[0].value),
+            (256, 60, 0.8)
+        );
+    }
+
     #[test]
     fn a_right_press_deletes_its_note_and_a_right_drag_every_note_its_path_crosses_in_one_undo_step()
      {

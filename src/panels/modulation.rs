@@ -73,17 +73,66 @@ fn source_accent(source: usize) -> Accent {
     }
 }
 
-/// The ring arc of param `param`'s knob, if a route drives it.
+/// The ring arc of param `param`'s knob, if a route drives it: a MATRIX route first, else the LFO page's own route (its DEST and
+/// AMOUNT), else the EG page's. `now` is left for the caller to fill from the engine's live values.
 pub(super) fn modulation_of(
     state: &PanelState,
     colors: &ThemeColors,
+    params: &[f32],
     param: usize,
 ) -> Option<Modulation> {
-    let route = route_on(state, param)?;
-    Some(Modulation {
-        amount: route.amount,
-        color: source_accent(route.source).color(colors),
-    })
+    let ring = |amount: f32, source: usize| Modulation {
+        amount,
+        color: source_accent(source).color(colors),
+        now: None,
+    };
+    if let Some(route) = route_on(state, param) {
+        return Some(ring(route.amount, route.source));
+    }
+    if let Some(amount) = page_range(params, param, 1) {
+        return Some(ring(amount, 1));
+    }
+    page_range(params, param, 2).map(|amount| ring(amount, 2))
+}
+
+/// The engine's value of knob `param` now, from its live values `slab` ([`honeydew_audio::gmsynth::LIVE_TARGETS`]).
+pub(super) fn live_value(slab: Option<&[f32]>, param: usize) -> Option<f32> {
+    let i = MOD_TARGETS.iter().position(|&p| p == param)?;
+    slab?
+        .get(honeydew_audio::gmsynth::LIVE_TARGETS + i)
+        .copied()
+        .filter(|v| v.is_finite())
+}
+
+/// How far the LFO page's (`source` 1) or the EG page's (2) own route moves knob `param`, as a fraction of its travel (−1…1):
+/// the LFO's DEST item (FLT, MOD, FREQ, LVL, PAN) with its AMOUNT, the EG's DEST (Filter, Osc. Mod., Pitch) with its
+/// AMOUNT, by the laws the engine plays them with (a cube for the filter, a signed square for the mods, dB for the level).
+/// `None` when it does not drive the knob or its AMOUNT is at 0.
+pub(super) fn page_range(params: &[f32], param: usize, source: usize) -> Option<f32> {
+    let get = |p: usize| params.get(p).copied().filter(|v| v.is_finite());
+    let (amount, dest) = if source == 1 {
+        (get(34)?, get(35)?)
+    } else {
+        (get(40)?, get(41)?)
+    };
+    let a = 2.0 * amount.clamp(0.0, 1.0) - 1.0;
+    let squared = a * a.abs();
+    let (driven, range) = if source == 1 {
+        match ((4.0 * dest.clamp(0.0, 1.0)) as usize).min(4) {
+            0 => (21, a.powi(3)),
+            1 => (15, squared),
+            3 => (1, 12.0 * a / 66.0),
+            4 => (2, squared),
+            _ => return None,
+        }
+    } else {
+        match ((2.0 * dest.clamp(0.0, 1.0)) as usize).min(2) {
+            0 => (21, a.powi(3)),
+            1 => (15, squared),
+            _ => return None,
+        }
+    };
+    (param == driven && range.abs() >= 0.005).then_some(range.clamp(-1.0, 1.0))
 }
 
 /// The slot the inspector edits for `param`: the one that drives it, else the first free one.
@@ -388,6 +437,65 @@ mod tests {
             "FREQ drives a pitch"
         );
         assert_eq!(page_lfo_on(&[], 21), None);
+    }
+
+    #[test]
+    fn the_pages_own_routes_give_a_ring_by_the_engines_laws() {
+        let mut p = vec![0.5; 77];
+        // LFO page: AMOUNT +100 % on FLT is the cutoff with a cubed depth of 1; at +50 % it is 1/8 of the travel.
+        (p[34], p[35]) = (1.0, 0.0);
+        assert_eq!(page_range(&p, 21, 1), Some(1.0));
+        p[34] = 0.75;
+        assert!((page_range(&p, 21, 1).unwrap() - 0.125).abs() < 1e-6);
+        // MOD is a signed square, LVL is twelve dB of the 66 dB level range, PAN a signed square.
+        (p[34], p[35]) = (1.0, 0.25);
+        assert_eq!(page_range(&p, 15, 1), Some(1.0));
+        p[35] = 0.75;
+        assert!((page_range(&p, 1, 1).unwrap() - 12.0 / 66.0).abs() < 1e-6);
+        p[35] = 1.0;
+        assert_eq!(page_range(&p, 2, 1), Some(1.0));
+        // AMOUNT in the middle is none, and so is FREQ (a pitch).
+        p[34] = 0.5;
+        assert_eq!(page_range(&p, 2, 1), None);
+        (p[34], p[35]) = (1.0, 0.5);
+        assert_eq!(page_range(&p, 21, 1), None);
+        // The EG page: Filter, Osc. Mod. and Pitch; AMOUNT 40, DEST 41.
+        let mut q = vec![0.5; 77];
+        (q[40], q[41]) = (1.0, 0.0);
+        assert_eq!(page_range(&q, 21, 2), Some(1.0));
+        q[41] = 0.5;
+        assert_eq!(page_range(&q, 15, 2), Some(1.0));
+        q[41] = 1.0;
+        assert_eq!(page_range(&q, 21, 2), None, "pitch has no knob");
+    }
+
+    #[test]
+    fn a_matrix_route_wins_over_the_pages_and_live_values_come_from_the_slab() {
+        let colors = crate::theme::theme_by_id(0).colors;
+        let mut state = PanelState::default();
+        let mut params = vec![0.5; 77];
+        (params[34], params[35]) = (1.0, 0.0);
+        let page = modulation_of(&state, &colors, &params, 21).unwrap();
+        assert_eq!(page.color, source_accent(1).color(&colors));
+        set_route(&mut state, 0, 21, 2);
+        let matrix = modulation_of(&state, &colors, &params, 21).unwrap();
+        assert_eq!(
+            matrix.color,
+            source_accent(2).color(&colors),
+            "the matrix route's source"
+        );
+        assert!(modulation_of(&state, &colors, &params, 22).is_none());
+        let mut slab = vec![0.0; honeydew_audio::gmsynth::LIVE_LEN];
+        let i = MOD_TARGETS.iter().position(|&p| p == 21).unwrap();
+        slab[honeydew_audio::gmsynth::LIVE_TARGETS + i] = 0.8;
+        assert_eq!(live_value(Some(&slab), 21), Some(0.8));
+        assert_eq!(live_value(Some(&slab[..10]), 21), None, "a short slab");
+        assert_eq!(live_value(None, 21), None);
+        assert_eq!(
+            live_value(Some(&slab), 3),
+            None,
+            "a knob that cannot be routed"
+        );
     }
 
     #[test]

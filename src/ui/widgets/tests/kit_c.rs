@@ -878,6 +878,53 @@ fn an_arc_theme_draws_a_knob_as_a_track_and_a_value_arc() {
     assert_eq!(left[1], right[1]);
 }
 
+/// The modulation ring is drawn on a knob of either style, the classic ring and the arc knob (which once lost it): one more
+/// arc for the reach of the source, and a live dot where it has the knob now.
+#[test]
+fn the_modulation_ring_shows_on_classic_and_arc_knobs_with_its_live_dot() {
+    let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(4.0 * U, 4.0 * U));
+    let run = |arc: bool, modulation: Option<crate::ui::widgets::Modulation>| {
+        let mut bench = Bench::new(|ui, cx| {
+            let mut theme = theme_by_id(0);
+            theme.options.knob_arc = arc;
+            let cx = UiCtx {
+                theme: &theme,
+                m: cx.m,
+            };
+            let c = Control {
+                modulation,
+                ..Control::new(Id::new("mod"), rect, "", Color32::RED, 0.0)
+            };
+            let mut x = 0.4;
+            crate::ui::widgets::knob(ui, &cx, &c, &mut x, |v| format!("{v:.2}"))
+        });
+        bench.frame(vec![]);
+        let circles = bench
+            .shapes
+            .iter()
+            .filter(|c| matches!(c.shape, egui::epaint::Shape::Circle(_)))
+            .count();
+        (path_lengths(&bench.shapes).len(), circles)
+    };
+    let ring = |now| crate::ui::widgets::Modulation {
+        amount: 0.3,
+        color: Color32::GREEN,
+        now,
+    };
+    for arc in [false, true] {
+        let (plain_paths, plain_circles) = run(arc, None);
+        let (paths, circles) = run(arc, Some(ring(None)));
+        assert_eq!(paths, plain_paths + 1, "arc {arc}: the reach of the source");
+        let (_, with_dot) = run(arc, Some(ring(Some(0.6))));
+        assert_eq!(
+            with_dot,
+            circles + 3,
+            "arc {arc}: the live dot is three circles"
+        );
+        assert_eq!(circles, plain_circles + 1, "arc {arc}: the end cap");
+    }
+}
+
 #[test]
 fn a_boxed_list_boxes_the_selected_cell_in_menu_fill_inset_2t_and_draws_no_bars() {
     let index = Cell::new(1usize);

@@ -8,7 +8,7 @@ use eframe::egui::{Align2, Color32, Painter, Pos2, Rect, Response, Stroke, Ui, V
 use super::arc::{FOCUS_GROWTH, pulse};
 use super::curve::{curve_plot, env};
 use super::text::{fit_both, fit_only};
-use super::{Control, Law, drag_control, growth, hovered, primary_down_on};
+use super::{Control, Law, Modulation, drag_control, growth, hovered, primary_down_on};
 use crate::ui::UiCtx;
 
 /// Alpha of the channel wash inside the ring while the knob is touched or hovered.
@@ -69,7 +69,12 @@ fn dial(ui: &Ui, cx: &UiCtx, c: &Control, response: &Response, v: f32) -> (Pos2,
     let swell = pulse(ui, c.id, touched, c.rect.height() * m.ppp());
     let center = body.center();
     if cx.theme.options.knob_arc {
-        let r = paint_arc_knob(ui, cx, c, center, diameter(body) * swell, v, (lit, touched));
+        let d = diameter(body) * swell;
+        let r = paint_arc_knob(ui, cx, c, center, d, v, (lit, touched));
+        // The modulation ring lies outside the arc knob's track too.
+        if let Some(m) = c.modulation {
+            paint_modulation(painter, center, d, v, m, cx.m.t());
+        }
         return (center, r);
     }
     let r = ring(center, diameter(body) * swell, v, c.bipolar, m.t());
@@ -85,7 +90,7 @@ fn dial(ui: &Ui, cx: &UiCtx, c: &Control, response: &Response, v: f32) -> (Pos2,
     painter.circle_filled(r.dot, grow * r.dot_r, c.channel);
     if let Some(m) = c.modulation {
         let d = diameter(body) * swell;
-        paint_modulation(painter, center, d, v, m.amount, m.color, cx.m.t());
+        paint_modulation(painter, center, d, v, m, cx.m.t());
     }
     (center, r)
 }
@@ -100,10 +105,10 @@ fn paint_modulation(
     center: Pos2,
     d: f32,
     v: f32,
-    amount: f32,
-    color: Color32,
+    modulation: Modulation,
     t: f32,
 ) {
+    let (amount, color) = (modulation.amount, modulation.color);
     let width = (0.035 * d).max(t * 0.6);
     let radius = 0.5 * d - width / 2.0;
     let points = mod_arc(center, radius, v, amount);
@@ -112,6 +117,14 @@ fn paint_modulation(
     }
     if let Some(&end) = points.last() {
         painter.circle_filled(end, MOD_DOT * width / 2.0, color);
+    }
+    // Where the source has the knob right now: a bright dot with a dark rim, running along the arc.
+    if let Some(now) = modulation.now.filter(|n| n.is_finite()) {
+        let (sin, cos) = dot_angle(now.clamp(0.0, 1.0)).sin_cos();
+        let at = center + radius * vec2(-sin, cos);
+        painter.circle_filled(at, 2.2 * width, Color32::from_black_alpha(160));
+        painter.circle_filled(at, 1.7 * width, color);
+        painter.circle_filled(at, 0.7 * width, Color32::WHITE);
     }
 }
 

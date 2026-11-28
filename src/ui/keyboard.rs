@@ -465,6 +465,7 @@ fn paint(
     .map(|c| c.to_color32());
     let fill = |r: Rect, color: Color32| painter.rect_filled(r / ppp, 0.0, color);
     let shaded = cx.theme.options.key_shadow;
+    let text_ink = colors.text.to_color32();
     let p = |midi: u8| press[usize::from(midi)].clamp(0.0, 1.0);
     let mix = |c: Color32, midi: u8| c.lerp_to_gamma(channel, p(midi));
     let is_root = |midi: u8| input.enabled && midi % 12 == input.lock.map_or(0, |l| l.0);
@@ -501,7 +502,7 @@ fn paint(
             fill(r.body, mix(a, midi));
             fill(r.upper, mix(b, midi));
             if shaded {
-                shade::white(painter, r.body / ppp);
+                shade::key(painter, r.body / ppp);
             }
             for sep in r.seps {
                 fill(sep, bg);
@@ -512,21 +513,31 @@ fn paint(
             let (label, color) = if key.black {
                 let r = black_px(x(key), y, u, p(midi));
                 let b = if range { black } else { black_off };
-                if shaded {
-                    shade::black_shadow(painter, r.body / ppp, u / ppp);
-                }
                 fill(r.body, mix(if root { channel } else { b }, midi));
                 if range || sounding >> midi & 1 == 1 {
                     fill(r.border, bg);
                     fill(r.inner, mix(b, midi));
                     if shaded {
-                        shade::black_face(painter, r.inner / ppp);
+                        shade::key(painter, r.inner / ppp);
                     }
                 }
-                (r.label, if root { white_off } else { black_off })
+                let fill = if root { channel } else { b };
+                (r.label, (if root { white_off } else { black_off }, fill))
             } else {
                 let label = white_px(x(key), y, u).label;
-                (label, if root { black_off } else { white_off })
+                let fill = match (root, range) {
+                    (true, _) => channel,
+                    (false, true) => white,
+                    (false, false) => white_off,
+                };
+                (label, (if root { black_off } else { white_off }, fill))
+            };
+            // The keys of an inverted keyboard (dark long keys) would hide labels drawn in their own light and dark: a
+            // label that does not read on its key takes the theme's text or background colour, whichever reads better.
+            let color = if shaded {
+                readable(color.0, color.1, [text_ink, bg])
+            } else {
+                color.0
             };
             let named = settings.key_names && range && !(key.black && input.lock.is_none());
             if root || named {
@@ -535,6 +546,30 @@ fn paint(
                 widgets::shrink(painter, m, at, Align2::CENTER_BOTTOM, &text, 12, color);
             }
         }
+        // One soft shadow from the panel's top edge over the keys (a theme's `keyShadow`).
+        if shaded {
+            shade::from_above(painter, row.rect, 0.7 * u / ppp);
+        }
+    }
+}
+
+/// `ink` where it reads on `fill` (a lightness contrast of at least 2), else whichever of `others` reads best.
+fn readable(ink: Color32, fill: Color32, others: [Color32; 2]) -> Color32 {
+    let lightness = |c: Color32| {
+        let [r, g, b, _] = c.to_array();
+        (f32::from(r.max(g).max(b)) + f32::from(r.min(g).min(b))) / 510.0 + 0.05
+    };
+    let ratio = |c: Color32| {
+        let (a, b) = (lightness(c), lightness(fill));
+        a.max(b) / a.min(b)
+    };
+    if ratio(ink) >= 2.0 {
+        return ink;
+    }
+    if ratio(others[0]) >= ratio(others[1]) {
+        others[0]
+    } else {
+        others[1]
     }
 }
 
@@ -554,43 +589,30 @@ fn gradient(painter: &egui::Painter, rect: Rect, top: Color32, bottom: Color32) 
     painter.add(Shape::mesh(mesh));
 }
 
-/// A theme's `keyShadow` look: a white key shaded from a faint light at its top to a darker foot; a black key's shadow
-/// on the white keys below and beside it, and the light its face catches towards the front.
+/// A theme's `keyShadow` look: a faint vertical shade on each key, and one soft shadow from the top edge of the key panel
+/// over the keys, as if the panel lay under the bar above it.
 mod shade {
     use super::{Color32, Rect, gradient};
     use eframe::egui::{Painter, vec2};
 
-    /// A white key `body` (points): lit a little at the top, shaded towards the foot.
-    pub fn white(painter: &Painter, body: Rect) {
+    /// A key `body` (points): a little light at its top, shaded towards the foot.
+    pub fn key(painter: &Painter, body: Rect) {
         gradient(
             painter,
             body,
-            Color32::from_white_alpha(14),
-            Color32::from_black_alpha(64),
+            Color32::from_white_alpha(8),
+            Color32::from_black_alpha(48),
         );
     }
 
-    /// The shadow a black key `body` throws: a soft dark patch under its foot, a little wider than the key.
-    pub fn black_shadow(painter: &Painter, body: Rect, u: f32) {
-        let below = Rect::from_min_max(
-            body.left_bottom() - vec2(0.05 * u, 0.0),
-            body.right_bottom() + vec2(0.05 * u, 0.35 * u),
-        );
+    /// The shadow the bar above throws on the key panel `row`: from its top edge, `depth` points deep, dark to nothing.
+    pub fn from_above(painter: &Painter, row: Rect, depth: f32) {
+        let strip = Rect::from_min_size(row.min, vec2(row.width(), depth.min(row.height())));
         gradient(
             painter,
-            below,
-            Color32::from_black_alpha(90),
+            strip,
+            Color32::from_black_alpha(150),
             Color32::from_black_alpha(0),
-        );
-    }
-
-    /// A black key's face `inner` (points): a faint light that grows towards the front edge.
-    pub fn black_face(painter: &Painter, inner: Rect) {
-        gradient(
-            painter,
-            inner,
-            Color32::from_white_alpha(4),
-            Color32::from_white_alpha(26),
         );
     }
 }
@@ -2186,5 +2208,40 @@ mod tests {
             flat_rects, shaded_rects,
             "the same rectangles, the shades go over them"
         );
+    }
+
+    /// A label that reads on its key stays; one that does not takes the better of the theme's text and background colour.
+    #[test]
+    fn labels_that_do_not_read_on_their_key_take_a_readable_colour() {
+        let (dark, light) = (
+            Color32::from_rgb(27, 29, 33),
+            Color32::from_rgb(210, 214, 219),
+        );
+        let (text, bg) = (
+            Color32::from_rgb(201, 205, 211),
+            Color32::from_rgb(23, 24, 27),
+        );
+        assert_eq!(readable(light, dark, [text, bg]), light, "reads: kept");
+        assert_eq!(
+            readable(dark, dark, [text, bg]),
+            text,
+            "dark on dark: the text colour"
+        );
+        assert_eq!(
+            readable(light, light, [text, bg]),
+            bg,
+            "light on light: the background"
+        );
+    }
+
+    /// Graphite's keyboard is inverted: the long (white) keys are the dark ones, the short (black) keys the light ones.
+    #[test]
+    fn the_graphite_keyboard_has_dark_long_keys_and_light_short_ones() {
+        let c = theme_by_id(9).colors;
+        let lightness = |c: crate::theme::Rgba| c.r.max(c.g).max(c.b);
+        assert!(lightness(c.white_key) < lightness(c.black_key));
+        assert!(lightness(c.white_key_disabled) < lightness(c.black_key_disabled));
+        assert!(theme_by_id(9).options.key_shadow && theme_by_id(9).options.knob_arc);
+        assert!(!theme_by_id(0).options.key_shadow);
     }
 }

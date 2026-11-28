@@ -97,6 +97,8 @@ const KEY_STEP: f32 = 0.05;
 pub struct Modulation {
     pub amount: f32,
     pub color: Color32,
+    /// Where the modulation has the knob now (0…1 on its travel), drawn as a dot on the arc: it runs with the source.
+    pub now: Option<f32>,
 }
 
 /// What a knob, slider, toggle or spinner needs besides its value and value text. Build it with [`Control::new`] and

@@ -152,8 +152,8 @@ pub struct ThemeOptions {
     /// Honeydew's own: knobs draw as a thin value arc round a dark body with a pointer (the Pigments look) instead of the
     /// classic ring. A theme file that leaves it out has the classic knobs.
     pub knob_arc: bool,
-    /// Honeydew's own: the keyboard's keys are drawn with a soft vertical shade, a lit top edge on the black keys and the
-    /// black keys' shadow on the white ones, for a slightly raised look. Off: flat keys, as the original.
+    /// Honeydew's own: the keyboard is drawn as if it lay under the bar above it: a soft shadow falls from the top edge
+    /// of the key panel, and each key has a faint vertical shade. Off: flat keys, as the original.
     pub key_shadow: bool,
 }
 
@@ -367,13 +367,14 @@ pub fn builtin_themes() -> Vec<Theme> {
             Some([0xFFFFFF, 0x000000, 0xCCCCCC, 0x7C7C7C]),
             Some([1.00, 0.6439, 1.00, 0.1303]),
         ),
-        // Theme 9, Honeydew's own: dark graphite panels with our usual accent, a dark keyboard with shaded keys and arc
+        // Theme 9, Honeydew's own: dark graphite panels with our usual accent, an inverted keyboard (dark long keys, light short ones) under a top shadow, and arc
         // knobs, after the look of modern wavetable synths. Colours and drawing style only, the layout is the app's.
         row(
             9,
             "Graphite",
             [0x17181B, 0x202226, 0x292C31, 0x33373D, 0xC9CDD3, ACCENT],
-            Some([0x8B9097, 0x15171A, 0x4F545B, 0x2A2D32]),
+            // An inverted keyboard: the long keys dark, the short ones light.
+            Some([0x1B1D21, 0xD2D6DB, 0x131518, 0x8E9298]),
             Some([0.85, 0.55, 1.00, 0.20]),
         ),
     ]

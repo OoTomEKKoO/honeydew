@@ -38,8 +38,11 @@ pub const LIVE_PHASE: usize = 1;
 /// mean, or the CUTOFF knob's value while nothing sounds.
 pub const LIVE_CUTOFF: usize = 2;
 pub const LIVE_BANDS: usize = 3;
+/// Then, for each of [`MOD_TARGETS`], that knob's value now (0…1) with every route that drives it applied: the MATRIX routes
+/// and the LFO and EG pages' own (their DEST and AMOUNT), so a ring on the knob can show where the modulation has it.
+pub const LIVE_TARGETS: usize = LIVE_BANDS + crate::spectrum::BANDS;
 /// The length of the live values.
-pub const LIVE_LEN: usize = LIVE_BANDS + crate::spectrum::BANDS;
+pub const LIVE_LEN: usize = LIVE_TARGETS + MOD_TARGETS.len();
 /// Voices.
 pub const VOICES: usize = 4;
 /// Choir copies at most: Solo … Quartet.
@@ -1218,6 +1221,18 @@ impl GmSynth {
             self.snap = false;
         }
 
+        // What the knobs' rings show: each target's value now, with the pages' own LFO and EG routes on top of the MATRIX's.
+        let (c, eg_now) = (&self.control, eg_now);
+        for (i, &param) in MOD_TARGETS.iter().enumerate() {
+            let pages = match param {
+                21 => c.lfo_filter * lfo_now + c.eg_filter * eg_now,
+                15 => c.lfo_mod * lfo_now + c.eg_mod * eg_now,
+                1 => lfo_level / 66.0,
+                2 => lfo_pan,
+                _ => 0.0,
+            };
+            self.live[LIVE_TARGETS + i] = (v[param] + pages).clamp(0.0, 1.0);
+        }
         for voice in self.voices.iter_mut().filter(|voice| voice.sounding()) {
             voice.glide(self.control.slide, sr);
             voice.control(&self.control, sr);
@@ -2788,6 +2803,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_live_target_values_show_the_matrix_and_the_pages_own_routes() {
+        let slot = |param: usize| MOD_TARGETS.iter().position(|&p| p == param).unwrap();
+        let cutoff = slot(21);
+        let live = |synth: &GmSynth, param: usize| synth.analysis()[LIVE_TARGETS + slot(param)];
+        let play = |synth: &mut GmSynth| {
+            synth.note_on(60, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
+            (0..40)
+                .map(|_| {
+                    synth.process(&mut l, &mut r, STOPPED);
+                    live(synth, 21)
+                })
+                .collect::<Vec<f32>>()
+        };
+        let spread = |v: &[f32]| {
+            v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min)
+        };
+        // Nothing routed: the knob's own value, steady.
+        let mut plain = GmSynth::new(RATE);
+        plain.set_parameter(21, 0.5);
+        let steady = play(&mut plain);
+        assert!(
+            spread(&steady) < 1e-6 && (steady[0] - 0.5).abs() < 1e-6,
+            "{steady:?}"
+        );
+        // A MATRIX route: the value runs with the LFO, around the knob.
+        let mut matrix = GmSynth::new(RATE);
+        matrix.set_parameter(21, 0.5);
+        matrix.set_parameter(32, 0.0);
+        matrix.set_setting(MOD_BASE + MOD_SOURCE, 1.0);
+        matrix.set_setting(MOD_BASE + MOD_TARGET, cutoff as f32 + 1.0);
+        matrix.set_setting(MOD_BASE + MOD_AMOUNT, 1.0);
+        assert!(spread(&play(&mut matrix)) > 0.2);
+        // The LFO page's own route (DEST FLT, AMOUNT up) shows too, with no MATRIX route at all.
+        let mut page = GmSynth::new(RATE);
+        page.set_parameter(21, 0.5);
+        page.set_parameter(32, 0.0);
+        page.set_parameter(34, 1.0);
+        page.set_parameter(35, 0.0);
+        assert!(spread(&play(&mut page)) > 0.2);
+        assert!(plain.analysis().len() == LIVE_LEN);
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.
