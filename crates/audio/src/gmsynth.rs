@@ -2888,7 +2888,8 @@ mod tests {
             synth.note_on(72, 1.0, 0.5);
             let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
             for _ in 0..30 {
-                (l.fill(0.0), r.fill(0.0));
+                l.fill(0.0);
+                r.fill(0.0);
                 synth.process(&mut l, &mut r, STOPPED);
             }
             let sounding = synth.analysis()[LIVE_BANDS..LIVE_TARGETS]
@@ -2898,7 +2899,8 @@ mod tests {
             assert!(sounding > 0.3, "the note shows in the bands");
             synth.note_off(72);
             for _ in 0..200 {
-                (l.fill(0.0), r.fill(0.0));
+                l.fill(0.0);
+                r.fill(0.0);
                 synth.process(&mut l, &mut r, STOPPED);
             }
             let stuck: Vec<usize> = synth.analysis()[LIVE_BANDS..LIVE_TARGETS]
@@ -2936,12 +2938,14 @@ mod tests {
             synth.note_on(key, 1.0, 0.5);
             let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
             for _ in 0..30 {
-                (l.fill(0.0), r.fill(0.0));
+                l.fill(0.0);
+                r.fill(0.0);
                 synth.process(&mut l, &mut r, STOPPED);
             }
             synth.note_off(key);
             for _ in 0..300 {
-                (l.fill(0.0), r.fill(0.0));
+                l.fill(0.0);
+                r.fill(0.0);
                 synth.process(&mut l, &mut r, STOPPED);
             }
             let bands = &synth.analysis()[LIVE_BANDS..LIVE_TARGETS];
