@@ -43,6 +43,13 @@ pub const LIVE_BANDS: usize = 3;
 pub const LIVE_TARGETS: usize = LIVE_BANDS + crate::spectrum::BANDS;
 /// The length of the live values.
 pub const LIVE_LEN: usize = LIVE_TARGETS + MOD_TARGETS.len();
+
+/// The output's band levels (0…1, [`crate::spectrum::BANDS`] of them, 20 Hz to 20 kHz) in a live `slab`: exactly the bands, not
+/// the target values that follow them (a picture that took everything after [`LIVE_BANDS`] drew those as bars in the highs).
+/// `None` for a slab that is too short.
+pub fn live_bands(slab: &[f32]) -> Option<&[f32]> {
+    (slab.len() >= LIVE_LEN).then(|| &slab[LIVE_BANDS..LIVE_TARGETS])
+}
 /// Voices.
 pub const VOICES: usize = 4;
 /// Choir copies at most: Solo … Quartet.
@@ -2847,6 +2854,107 @@ mod tests {
         page.set_parameter(35, 0.0);
         assert!(spread(&play(&mut page)) > 0.2);
         assert!(plain.analysis().len() == LIVE_LEN);
+    }
+
+    #[test]
+    fn the_bands_of_a_live_slab_are_the_bands_and_not_the_target_values_after_them() {
+        let mut synth = GmSynth::new(RATE);
+        synth.set_parameter(1, 0.9);
+        let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
+        synth.process(&mut l, &mut r, STOPPED);
+        let slab = synth.analysis().to_vec();
+        let bands = live_bands(&slab).unwrap();
+        assert_eq!(bands.len(), crate::spectrum::BANDS);
+        // Nothing plays, so every band is dark, while the target values after them are not (Level is at 0.9).
+        assert!(bands.iter().all(|v| *v < 0.01), "{bands:?}");
+        assert!(slab[LIVE_TARGETS..].iter().any(|v| *v > 0.5));
+        assert!(live_bands(&slab[..10]).is_none());
+    }
+
+    #[test]
+    fn the_spectrum_falls_back_to_nothing_once_the_notes_have_ended() {
+        for (a, b) in [
+            (0, 0),
+            (TABLE_BASE + 6, TABLE_BASE + 4),
+            (TABLE_BASE + 4, TABLE_BASE + 5),
+        ] {
+            let mut synth = GmSynth::new(RATE);
+            for (key, item) in [(WAVE_A, a), (WAVE_B, b)] {
+                prepare_setting(key, item as f32);
+                synth.set_setting(key, item as f32);
+            }
+            synth.set_parameter(13, 0.7); // both oscillators heard
+            synth.set_parameter(6, 0.0); // a short release
+            synth.note_on(72, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
+            for _ in 0..30 {
+                (l.fill(0.0), r.fill(0.0));
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            let sounding = synth.analysis()[LIVE_BANDS..LIVE_TARGETS]
+                .iter()
+                .cloned()
+                .fold(0.0_f32, f32::max);
+            assert!(sounding > 0.3, "the note shows in the bands");
+            synth.note_off(72);
+            for _ in 0..200 {
+                (l.fill(0.0), r.fill(0.0));
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            let stuck: Vec<usize> = synth.analysis()[LIVE_BANDS..LIVE_TARGETS]
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v > 0.02)
+                .map(|(i, _)| i)
+                .collect();
+            assert!(
+                stuck.is_empty(),
+                "items {a}/{b}: bands still lit after the note: {stuck:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_spectrum_is_dark_after_the_note_under_drive_fm_and_resonance_too() {
+        let mut worst = Vec::new();
+        for (drive, kind, res, key) in [
+            (1.0, 1.0, 0.9, 72u8),
+            (0.5, 0.5, 0.0, 100),
+            (1.0, 0.5, 0.9, 48),
+        ] {
+            let mut synth = GmSynth::new(RATE);
+            for (k, item) in [(WAVE_A, TABLE_BASE + 6), (WAVE_B, TABLE_BASE + 4)] {
+                prepare_setting(k, item as f32);
+                synth.set_setting(k, item as f32);
+            }
+            synth.set_setting(FILTER_DRIVE, drive);
+            synth.set_parameter(16, kind); // OSC MOD KIND
+            synth.set_parameter(15, 0.8); // MOD AMOUNT
+            synth.set_parameter(22, res);
+            synth.set_parameter(13, 0.7);
+            synth.set_parameter(6, 0.0);
+            synth.note_on(key, 1.0, 0.5);
+            let (mut l, mut r) = (vec![0.0; 1000], vec![0.0; 1000]);
+            for _ in 0..30 {
+                (l.fill(0.0), r.fill(0.0));
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            synth.note_off(key);
+            for _ in 0..300 {
+                (l.fill(0.0), r.fill(0.0));
+                synth.process(&mut l, &mut r, STOPPED);
+            }
+            let bands = &synth.analysis()[LIVE_BANDS..LIVE_TARGETS];
+            worst.push(bands.iter().cloned().fold(0.0_f32, f32::max));
+            let (lit, peak) = (
+                bands.iter().filter(|v| **v > 0.02).count(),
+                l.iter().fold(0.0_f32, |m, x| m.max(x.abs())),
+            );
+            assert!(
+                lit == 0,
+                "drive {drive} kind {kind} res {res} key {key}: {lit} bands still lit, output peak {peak}"
+            );
+        }
     }
 
     /// How many times the S&H value changes in `seconds` at 120 BPM with the SYNC item `item` and the RATE param `rate`.

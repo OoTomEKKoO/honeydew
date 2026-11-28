@@ -805,7 +805,9 @@ fn filter_display(
     // The spectrum of what the synth is playing, behind the response: one bar per band on the same log axis, so that the
     // filter's shape is seen in the sound it shapes. Each bar has a brighter cap, and a hair of space beside it.
     if let Some(slab) = &live {
-        let bands = &slab[honeydew_audio::gmsynth::LIVE_BANDS..honeydew_audio::gmsynth::LIVE_LEN];
+        let Some(bands) = honeydew_audio::gmsynth::live_bands(slab) else {
+            return changed;
+        };
         let edge = |k: usize| {
             FILTER_HZ.0 * (FILTER_HZ.1 / FILTER_HZ.0).powf(k as f32 / bands.len() as f32)
         };
