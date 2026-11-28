@@ -3374,14 +3374,18 @@ fn a_gmsynth_osc_shape_edit_is_live_and_the_running_engine_plays_it() {
     let old = render(&mut SongAudioEngine::new(&rig.app.song, 48_000.0).unwrap());
     assert!(old.iter().any(|sample| sample.abs() > 0.01));
     rig.take();
-    // `A`'s wave display is its menu: a tap opens the shape list (ten rows to a column), and the second item is the
-    // next shape.
+    // `A`'s wave display is its menu of submenus: a tap lists the groups, `Rough & Digital` (the fourth) opens its shapes
+    // under a way back, and its second shape (after `Digital`) is `Crunch`, item 1.
     let picker = rack_id(2).with(("module panel", id)).with(21100);
     rig.click_id(picker);
     for _ in 0..30 {
         rig.frame(vec![]);
     }
-    rig.click_id(picker.with("item popup").with((0_usize, 1_usize)));
+    rig.click_id(picker.with("item popup").with((0_usize, 3_usize)));
+    for _ in 0..30 {
+        rig.frame(vec![]);
+    }
+    rig.click_id(picker.with("item popup").with((0_usize, 2_usize)));
     rig.frame(vec![]);
     let wave = |rig: &Rig| {
         let blob = rig.app.song.channels[2].rack.modules[0]

@@ -439,6 +439,14 @@ Route der LFO-Seite (DEST + AMOUNT), nicht die Matrix.
 **Reihenfolge im Paket:** A (klein, sofort), dann B (Zuverlässigkeit), dann C (größter Brocken), ein Build am Ende; nach jedem Teil
 Tests, Clippy und lokaler Commit (Push erst am Ende, damit nur ein Build entsteht).
 
+**Stand Paket 5:** Teil A (Graphite invertiert mit Schatten von oben, Ring im Bogen-Stil, Live-Punkt, Seiten-Routen sichtbar, Hinweis auf
+der MATRIX-Seite) und Teil B (Locks folgen verschobenen/transponierten/quantisierten Noten und fallen beim Löschen weg, `locks::reconcile`)
+sind gebaut. Kopien (Einfügen, Duplizieren, Doppeln) und Clip-Operationen in der Playlist (Teilen) tragen die Locks noch nicht mit.
+**Dazu (Wunsch des Besitzers, Tag 4):** das Oszillator-Menü ist jetzt ein Menü mit Untermenüs (Gruppen: Basic, Keys & Strings, Voices, Rough & Digital und die drei Tabellen-Gruppen; `SOURCE_GROUPS` in `gm_synth.rs`, `grouped_popup` in `widgets/spinner.rs`, die Indizes im Song bleiben gleich). Die Zuordnung der 29 Shapes zu Gruppen ist meine Einschätzung nach den Namen und kann nach dem Hören umsortiert werden.
+Teil C (WAV-Import) folgt als eigener Schritt: die Auswahl läuft wie bei der 3x-Osc-Custom-Welle über den Sample-Picker
+(`actions.module_sample`, `picks::load_pick`); der GM-Synth-`CSTM` hat nur feste Felder, deshalb braucht der Pfad der Tabelle einen
+eigenen Honeydew-Block im Modul (nicht im `CSTM`), den Sample-Cache beim Bauen der Engine und die Bündelung beim Export.
+
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
 - Letzte APK (Commit `3587d86`): Menüs in der Spalte am rechten Rand (besonders LFO, dort am niedrigsten), Envelope-Anzeigen

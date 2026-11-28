@@ -142,11 +142,18 @@ const ARC_RADIUS: f32 = 0.43;
 const ARC_BODY: f32 = 0.32;
 /// The arc's stroke, and the pointer's start and end on the body, as fractions of `d`.
 const ARC_STROKE: f32 = 0.05;
-const POINTER: (f32, f32) = (0.08, 0.26);
+const POINTER: (f32, f32) = (0.22, 0.29);
+// The pointer lies between the digits and the body's rim (so it never runs over the value text), and the body inside the arc.
+const _: () = assert!(
+    ARC_TEXT < POINTER.0 && POINTER.0 < POINTER.1 && POINTER.1 < ARC_BODY && ARC_BODY < ARC_RADIUS
+);
+/// The value text's half width in an arc knob, as a fraction of its diameter: it stays inside the pointer's start, so the
+/// pointer never runs over the digits.
+const ARC_TEXT: f32 = 0.2;
 
-/// The body radius of an arc knob of diameter `d`: what a knob's value text and a graph knob's plot are fitted to.
-pub(super) fn arc_body(d: f32) -> f32 {
-    ARC_BODY * d
+/// The half width the value text of an arc knob of diameter `d` is fitted to ([`ARC_TEXT`]).
+pub(super) fn arc_text(d: f32) -> f32 {
+    ARC_TEXT * d
 }
 
 /// Draws a knob in the arc style (a theme's `knobArc`, the Graphite look) and returns its geometry as a [`Ring`]: a dim
@@ -200,7 +207,12 @@ fn paint_arc_knob(
     let (sin, cos) = dot_angle(v).sin_cos();
     let at = |f: f32| center + f * d * vec2(-sin, cos);
     let (from, to) = (at(POINTER.0), at(POINTER.1));
-    painter.line_segment([from, to], Stroke::new((stroke * 0.5).max(cx.m.t()), text));
+    // Short, near the body's rim and rounded at both ends, so that it does not touch the digits or look sharp.
+    let width = (stroke * 0.7).max(cx.m.t());
+    painter.line_segment([from, to], Stroke::new(width, text));
+    for end in [from, to] {
+        painter.circle_filled(end, width * 0.5, text);
+    }
     Ring {
         outer: radius + stroke * 0.5,
         inner: body,
@@ -249,7 +261,7 @@ pub fn knob(
     // so that the press swell never steps the size mid-press.
     let (_, body, _) = c.strips(m);
     let inner = if cx.theme.options.knob_arc {
-        arc_body(diameter(body))
+        arc_text(diameter(body))
     } else {
         ring(center, diameter(body), v, c.bipolar, m.t()).inner
     };

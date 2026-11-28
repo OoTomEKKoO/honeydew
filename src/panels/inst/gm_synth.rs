@@ -33,6 +33,19 @@ static LFO_SHAPED: Show = Show::Setting(65100, 0);
 /// Honeydew's extra filter types, a `CSTM` setting; `Off` keeps the `KIND` spinner's filter.
 const FILTER_EXTRA: &[&str] = &["Off", "BP", "Notch", "Comb"];
 
+/// The oscillator menu as submenus (a tap on A or B lists these, a group opens its items): the 29 classic shapes in four groups
+/// by what they sound like, then the built-in wavetables in three. Only an arrangement: each item keeps its index in the menu,
+/// which the song stores, so a group lists indices of [`WAVESHAPES`].
+const SOURCE_GROUPS: &[widgets::Group] = &[
+    ("Basic", &[18, 26, 16, 22, 19, 17, 15, 14, 20, 21]),
+    ("Keys & Strings", &[10, 13, 23, 24, 11]),
+    ("Voices", &[28, 25, 12, 27]),
+    ("Rough & Digital", &[3, 1, 4, 5, 6, 9, 0, 2, 7, 8]),
+    ("Table: Morph", &[29, 30, 31, 33, 36, 40]),
+    ("Table: Formant & Bell", &[32, 39]),
+    ("Table: Digital", &[34, 35, 37, 38]),
+];
+
 const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX";
 
 /// The sources and targets of Honeydew's free modulation routes (a `CSTM` setting each, see
@@ -140,12 +153,14 @@ pub fn panel() -> Option<Panel> {
                     line([
                         spinner(21100, "A")
                             .items(WAVESHAPES.as_slice())
-                            .items_per_column(11)
+                            .groups(SOURCE_GROUPS)
+                            .items_per_column(10)
                             .draw(wave_a)
                             .margins(0.1, 0.1, 0.1, 0.1),
                         spinner(21200, "B")
                             .items(WAVESHAPES.as_slice())
-                            .items_per_column(11)
+                            .groups(SOURCE_GROUPS)
+                            .items_per_column(10)
                             .draw(wave_b)
                             .margins(0.1, 0.1, 0.1, 0.1),
                     ])
@@ -1173,8 +1188,8 @@ pub const REFERENCE: Reference = Reference {
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 2.42, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
                 row(23000, Widget::Knob, "FINE B", [2.42, 13.02, 2.42, 2.97]).p(12).ink(Ink::Accent(Accent::Osc)),
                 row(24000, Widget::Knob, "PHASE B", [4.84, 13.02, 2.42, 2.97]).p(14).ink(Ink::Accent(Accent::Osc)),
@@ -1190,8 +1205,8 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(11).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
                 row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 2.42, 2.76]).p(11).ink(Ink::Accent(Accent::Osc)),
                 row(23000, Widget::Knob, "FINE B", [2.42, 4.73, 2.42, 2.76]).p(12).ink(Ink::Accent(Accent::Osc)),
                 row(24000, Widget::Knob, "PHASE B", [4.84, 4.73, 2.42, 2.76]).p(14).ink(Ink::Accent(Accent::Osc)),

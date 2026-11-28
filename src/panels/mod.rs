@@ -313,6 +313,8 @@ pub struct Leaf {
     pub column_len: Option<usize>,
     /// Spinners and menu buttons: items that show but cannot be picked (the Scale's `Custom`).
     pub disabled_items: &'static [usize],
+    /// Tap pickers: the items in named groups, for a menu of submenus ([`widgets::Group`]).
+    pub groups: &'static [widgets::Group],
     /// A control without a param starts at this: an item index (lists, spinners), 0 or 1 (toggles, buttons) or a
     /// normalised value. It is also what a double click resets it to.
     pub default: f32,
@@ -802,6 +804,7 @@ pub fn show(
             bipolar: is_bipolar(leaf, pspec),
             column_len: leaf.column_len,
             disabled_items: leaf.disabled_items,
+            groups: leaf.groups,
             menu: match leaf.param.filter(|_| bound) {
                 Some(p) => ParamMenu::bound(links::has(&linked, module.instance_id, p as i32)),
                 None => ParamMenu::Unbound,

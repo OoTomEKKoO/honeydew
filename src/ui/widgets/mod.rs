@@ -91,6 +91,9 @@ const DOUBLE_TAP_S: f64 = 0.3;
 /// An `increment` / `decrement` key press's step; [`FINE`] times it for the fine ones.
 const KEY_STEP: f32 = 0.05;
 
+/// A named group of menu items for a grouped picker ([`Control::groups`]): its name and the indices of its items.
+pub type Group = (&'static str, &'static [usize]);
+
 /// A modulation route on a knob (Honeydew change): the knob draws a ring arc in the source's colour from its value by
 /// `amount` (−1…1 of the knob's travel), so the ring shows how far the source can push it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -151,6 +154,9 @@ pub struct Control<'a> {
     pub compact: bool,
     /// Knobs: a modulation route to show as a ring arc ([`Modulation`]).
     pub modulation: Option<Modulation>,
+    /// Tap pickers: the items sorted into named groups (Honeydew change): the popup first lists the groups, and a group opens
+    /// its items, with a row to go back. Empty: the plain list. The groups only arrange the menu: the indices stay the items'.
+    pub groups: &'a [Group],
     /// Knobs: the parameter menu offers `Modulate…`, which the panel answers with its inspector ([`Signal::modulate`]).
     pub modulate: bool,
 }
@@ -198,6 +204,7 @@ impl<'a> Control<'a> {
             ring_text: true,
             compact: false,
             modulation: None,
+            groups: &[],
             modulate: false,
         }
     }

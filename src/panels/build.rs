@@ -50,6 +50,7 @@ fn control(id: u32, widget: Widget, label: &'static str) -> Part {
         items: &[],
         column_len: None,
         disabled_items: &[],
+        groups: &[],
         default: 0.0,
         colors: None,
         shape: 1.0,
@@ -320,6 +321,11 @@ impl Part {
     /// Spinners and menu buttons: `len` items per popup column, filled top to bottom (the Arpeggiator's `Arp`: 8).
     pub fn items_per_column(self, len: usize) -> Self {
         self.with_leaf(|l| l.column_len = Some(len))
+    }
+
+    /// Tap pickers: the items in named groups, a menu of submenus (the GM Synth's oscillator shapes).
+    pub fn groups(self, groups: &'static [crate::ui::widgets::Group]) -> Self {
+        self.with_leaf(|l| l.groups = groups)
     }
 
     /// Spinners and menu buttons: items that cannot be picked.

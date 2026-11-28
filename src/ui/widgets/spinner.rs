@@ -315,7 +315,12 @@ pub fn tap_picker(
     if response.clicked() {
         open_popup(ui, c.id, c.rect.center());
     }
-    if let Some(i) = item_popup(ui, cx, c, items, current)
+    let picked = if c.groups.is_empty() {
+        item_popup(ui, cx, c, items, current)
+    } else {
+        grouped_popup(ui, cx, c, items, current)
+    };
+    if let Some(i) = picked
         && i != current
     {
         *index = i;
@@ -324,6 +329,78 @@ pub fn tap_picker(
     let item = items.get(*index).copied().unwrap_or_default();
     response.widget_info(|| combo_info(c, item));
     response
+}
+
+/// The ids of a grouped popup's rows that are not items: a group row is `GROUP_ROW + its number`, the way back is `BACK_ROW`.
+const GROUP_ROW: usize = 1_000_000;
+const BACK_ROW: usize = GROUP_ROW - 1;
+
+/// `c`'s popup as a menu of submenus ([`Control::groups`]): the groups are listed first, a tap on one shows its items under
+/// a row `‹ <group>` that goes back, and a tap on an item picks it and closes the popup. A tap outside closes it. The group
+/// shown is kept for as long as the popup is open and forgotten when it closes, so that it opens on the list again.
+fn grouped_popup(
+    ui: &Ui,
+    cx: &UiCtx,
+    c: &Control,
+    items: &[&str],
+    current: usize,
+) -> Option<usize> {
+    let menu_id = popup_id(c.id);
+    let state = c.id.with("open group");
+    let Some(at) = popup_anchor(ui, menu_id) else {
+        ui.data_mut(|d| d.remove::<usize>(state));
+        return None;
+    };
+    let open: Option<usize> = ui
+        .data(|d| d.get_temp(state))
+        .filter(|&g| g < c.groups.len());
+    let rows = grouped_rows(c.groups, items, current, open, c.column_len);
+    let result = crate::ui::preset_picker::modal(ui.ctx(), cx, menu_id, at, &rows);
+    let mut picked = None;
+    match result.selected {
+        Some(id) if id >= GROUP_ROW => ui.data_mut(|d| d.insert_temp(state, id - GROUP_ROW)),
+        Some(BACK_ROW) => ui.data_mut(|d| d.remove::<usize>(state)),
+        Some(item) => picked = Some(item),
+        None => {}
+    }
+    if result.close || picked.is_some() {
+        close_popup(ui, menu_id);
+        ui.data_mut(|d| d.remove::<usize>(state));
+    }
+    picked
+}
+
+/// The rows of a grouped popup: the groups (the one holding `current` marked) when none is `open`, else the open group's
+/// way back and its items, `column_len` (10 without one) to a column. Group rows and the way back keep the popup open.
+fn grouped_rows(
+    groups: &[super::Group],
+    items: &[&str],
+    current: usize,
+    open: Option<usize>,
+    column_len: Option<usize>,
+) -> Vec<PopupItem<usize>> {
+    let Some(group) = open.and_then(|g| groups.get(g)) else {
+        return groups
+            .iter()
+            .enumerate()
+            .map(|(g, (name, members))| PopupItem {
+                current: members.contains(&current),
+                keep_open: true,
+                ..PopupItem::new(GROUP_ROW + g, 0, g, (*name).to_owned())
+            })
+            .collect();
+    };
+    let len = column_len.unwrap_or(10).max(1);
+    let back = PopupItem {
+        keep_open: true,
+        ..PopupItem::new(BACK_ROW, 0, 0, format!("‹ {}", group.0))
+    };
+    let members = group.1.iter().filter(|&&i| i < items.len());
+    let rows = members.enumerate().map(|(k, &i)| PopupItem {
+        current: i == current,
+        ..PopupItem::new(i, k / len, 1 + k % len, items[i].to_owned())
+    });
+    std::iter::once(back).chain(rows).collect()
 }
 
 /// A control that looks like a spinner showing `item` and is a button: a tap anywhere on it is the caller's (the
@@ -480,5 +557,53 @@ mod tests {
             assert_eq!((item.col, item.row), (i / 8, i % 8), "{i}");
             assert_eq!(item.disabled, i == 23);
         }
+    }
+
+    #[test]
+    fn a_grouped_popup_lists_the_groups_then_the_open_groups_items_under_a_way_back() {
+        const GROUPS: &[super::super::Group] = &[("Basic", &[0, 2]), ("Rough", &[1, 3, 4])];
+        let items = ["Sine", "Dirt", "Saw", "Crunch", "Fuzz"];
+        // The list: one row per group, the one holding the current item marked, all keeping the popup open.
+        let list = grouped_rows(GROUPS, &items, 3, None, None);
+        let names: Vec<_> = list.iter().map(|r| r.label.to_string()).collect();
+        assert_eq!(names, ["Basic", "Rough"]);
+        assert_eq!(
+            list.iter().map(|r| r.current).collect::<Vec<_>>(),
+            [false, true]
+        );
+        assert!(list.iter().all(|r| r.keep_open && r.col == 0));
+        assert_eq!(list[1].id, Some(GROUP_ROW + 1));
+        // An open group: the way back first (it keeps the popup open), then its items by their own indices, current marked.
+        let open = grouped_rows(GROUPS, &items, 3, Some(1), Some(2));
+        assert_eq!(open[0].label, "‹ Rough");
+        assert_eq!((open[0].id, open[0].keep_open), (Some(BACK_ROW), true));
+        let picks: Vec<_> = open[1..]
+            .iter()
+            .map(|r| (r.id.unwrap(), r.label.to_string()))
+            .collect();
+        assert_eq!(
+            picks,
+            [
+                (1, "Dirt".to_owned()),
+                (3, "Crunch".to_owned()),
+                (4, "Fuzz".to_owned())
+            ]
+        );
+        assert!(
+            open[1..].iter().all(|r| !r.keep_open),
+            "an item closes the popup"
+        );
+        assert_eq!(
+            open[1..].iter().map(|r| r.current).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        // Two rows to a column: the third item starts the second column.
+        assert_eq!((open[3].col, open[3].row), (1, 1));
+        // A group number past the list shows the list again, and an index past the items is left out.
+        assert_eq!(grouped_rows(GROUPS, &items, 0, Some(9), None).len(), 2);
+        assert_eq!(
+            grouped_rows(GROUPS, &items[..2], 0, Some(1), None).len(),
+            1 + 1
+        );
     }
 }
