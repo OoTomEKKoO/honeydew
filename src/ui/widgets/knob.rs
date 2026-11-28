@@ -137,24 +137,14 @@ fn mod_arc(center: Pos2, radius: f32, v: f32, amount: f32) -> Vec<Pos2> {
     arc_between(center, radius, v, v + amount)
 }
 
-/// The arc knob's radii as fractions of its diameter `d`: the value arc's centre line, and the body it surrounds.
-const ARC_RADIUS: f32 = 0.43;
-const ARC_BODY: f32 = 0.32;
+/// The arc knob's radii as fractions of its diameter `d`: the value arc's centre line, and the solid body it surrounds.
+const ARC_RADIUS: f32 = 0.44;
+const ARC_BODY: f32 = 0.35;
 /// The arc's stroke, and the pointer's start and end on the body, as fractions of `d`.
 const ARC_STROKE: f32 = 0.05;
-const POINTER: (f32, f32) = (0.22, 0.29);
-// The pointer lies between the digits and the body's rim (so it never runs over the value text), and the body inside the arc.
-const _: () = assert!(
-    ARC_TEXT < POINTER.0 && POINTER.0 < POINTER.1 && POINTER.1 < ARC_BODY && ARC_BODY < ARC_RADIUS
-);
-/// The value text's half width in an arc knob, as a fraction of its diameter: it stays inside the pointer's start, so the
-/// pointer never runs over the digits.
-const ARC_TEXT: f32 = 0.2;
-
-/// The half width the value text of an arc knob of diameter `d` is fitted to ([`ARC_TEXT`]).
-pub(super) fn arc_text(d: f32) -> f32 {
-    ARC_TEXT * d
-}
+const POINTER: (f32, f32) = (0.12, 0.30);
+// The pointer lies on the body, and the body inside the value arc.
+const _: () = assert!(POINTER.0 < POINTER.1 && POINTER.1 < ARC_BODY && ARC_BODY < ARC_RADIUS);
 
 /// Draws a knob in the arc style (a theme's `knobArc`, the Graphite look) and returns its geometry as a [`Ring`]: a dim
 /// track over the knob's travel, the value in the channel colour over it from the knob's rest (the end for a unipolar
@@ -170,7 +160,7 @@ fn paint_arc_knob(
     (lit, touched): (bool, bool),
 ) -> Ring {
     let (colors, painter) = (&cx.theme.colors, ui.painter());
-    let (text, body_fill) = (colors.text.to_color32(), colors.control_fill.to_color32());
+    let text = colors.text.to_color32();
     let stroke = (ARC_STROKE * d).max(cx.m.t());
     let radius = ARC_RADIUS * d;
     // The travel: dim, round at both ends.
@@ -191,13 +181,21 @@ fn paint_arc_knob(
             painter.circle_filled(end, stroke * 0.5, c.channel);
         }
     }
-    // The body with its rim, brighter while touched.
+    // The body: solid and a little lighter than the panel, with a soft light from above and a dark rim; brighter while touched.
     let body = ARC_BODY * d;
-    painter.circle_filled(center, body, body_fill);
+    painter.circle_filled(center, body, colors.menu_fill.to_color32());
+    painter.circle_filled(
+        center - vec2(0.0, 0.04 * d),
+        body * 0.85,
+        Color32::from_white_alpha(9),
+    );
     painter.circle_stroke(
         center,
         body,
-        Stroke::new(cx.m.t() * 0.5, text.gamma_multiply(0.14)),
+        Stroke::new(
+            cx.m.t() * 0.8,
+            colors.background.to_color32().gamma_multiply(0.9),
+        ),
     );
     if lit {
         let wash = if touched { WASH * 2.0 } else { WASH };
@@ -207,7 +205,8 @@ fn paint_arc_knob(
     let (sin, cos) = dot_angle(v).sin_cos();
     let at = |f: f32| center + f * d * vec2(-sin, cos);
     let (from, to) = (at(POINTER.0), at(POINTER.1));
-    // Short, near the body's rim and rounded at both ends, so that it does not touch the digits or look sharp.
+    // The pointer: short, from near the middle to near the rim, rounded at both ends. The value is not drawn on the knob but in
+    // the drag bubble (#171), which follows the finger, so nothing runs over digits.
     let width = (stroke * 0.7).max(cx.m.t());
     painter.line_segment([from, to], Stroke::new(width, text));
     for end in [from, to] {
@@ -254,18 +253,15 @@ pub fn knob(
     let m = cx.m;
     c.strip_texts(ui.painter(), m, v, &display);
     let (center, _) = dial(ui, cx, c, &response, v);
-    if !c.ring_text {
+    // An arc knob shows its value in the drag bubble only.
+    if !c.ring_text || cx.theme.options.knob_arc {
         return response;
     }
     // Fit-only sizing: 12 pt down to 6 pt, and at 6 pt it is drawn whatever its width. Fitted to the resting ring,
     // so that the press swell never steps the size mid-press.
     let (_, body, _) = c.strips(m);
-    let inner = if cx.theme.options.knob_arc {
-        arc_text(diameter(body))
-    } else {
-        ring(center, diameter(body), v, c.bipolar, m.t()).inner
-    };
-    let max_w = value_width(inner, m.t());
+    let rest = ring(center, diameter(body), v, c.bipolar, m.t());
+    let max_w = value_width(rest.inner, m.t());
     let galley = fit_only(ui.painter(), m, &display(v), max_w, c.channel);
     ui.painter()
         .galley(center - galley.size() / 2.0, galley, c.channel);
@@ -300,7 +296,7 @@ pub fn strip_knob(
     };
     let (center, _) = dial(ui, cx, &face, &response, v);
     let text = display(v);
-    if c.ring_text && !text.is_empty() {
+    if c.ring_text && !cx.theme.options.knob_arc && !text.is_empty() {
         ui.painter().text(center, at, text, font, c.channel);
     }
     response

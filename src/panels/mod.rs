@@ -550,9 +550,9 @@ pub struct PanelState {
     /// Text the card wiring gives controls by `#n`, in place of the panel's: a text control's label (the SoundFont's
     /// load error), a [`Leaf::picker`] spinner's value (the SoundFont's patch name).
     pub texts: HashMap<u32, String>,
-    /// The GM Synth's modulation inspector: the param whose knob asked for it and where (`Modulate…` in the knob's
-    /// menu), until it is closed.
-    pub inspect: Option<(usize, eframe::egui::Pos2)>,
+    /// The GM Synth's modulation inspector: the param whose knob asked for it (`Modulate…` in the knob's menu), until it
+    /// is closed.
+    pub inspect: Option<usize>,
     /// The text being typed in the inspector's amount field, while there is one.
     pub inspect_text: Option<String>,
 }
@@ -1004,11 +1004,7 @@ pub fn show(
                 edits.pick = Some((p, pick));
             }
             if signal.modulate {
-                let at = ui
-                    .ctx()
-                    .input(|i| i.pointer.latest_pos())
-                    .unwrap_or(rect.center());
-                state.inspect = Some((p, at));
+                state.inspect = Some(p);
             }
         }
         if edit {

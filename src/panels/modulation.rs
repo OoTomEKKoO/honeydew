@@ -188,26 +188,9 @@ pub(super) fn set_amount(state: &mut PanelState, slot: usize, amount: f32) -> Ve
     put(state, slot, MOD_AMOUNT, v).into_iter().collect()
 }
 
-/// The inspector's box in U: wide enough for three source buttons, nine high.
+/// The inspector's box in U: wide enough for three source buttons, tall enough for its rows.
 const BOX: [f32; 2] = [17.0, 11.4];
 const TITLE: FontSize = FontSize::Pt18;
-
-/// What the LFO page's own route (its DEST and AMOUNT, the original's one fixed destination, which is not a MATRIX route)
-/// does to param `param`: its amount as a percent of the range (−100…100), or `None` when it does not drive that knob or
-/// its AMOUNT is at 0. DEST items: 0 the filter (CUTOFF), 1 the oscillator mod (MOD. AMNT), 2 the pitch, 3 the level, 4 the pan.
-pub(super) fn page_lfo_on(params: &[f32], param: usize) -> Option<f32> {
-    let get = |p: usize| params.get(p).copied().filter(|v| v.is_finite());
-    let (amount, dest) = (get(34)?, get(35)?);
-    let driven = match ((4.0 * dest.clamp(0.0, 1.0)) as usize).min(4) {
-        0 => 21,
-        1 => 15,
-        3 => 1,
-        4 => 2,
-        _ => return None,
-    };
-    let percent = 100.0 * (2.0 * amount.clamp(0.0, 1.0) - 1.0);
-    (param == driven && percent.abs() >= 1.0).then_some(percent)
-}
 
 /// The amount as the typed text reads it: a number of percent, `+`, `%` and spaces allowed, −100…100; `None` for text
 /// that is no number.
@@ -232,7 +215,7 @@ pub(super) fn inspector(
     params: &[f32],
     id: Id,
 ) -> Vec<u32> {
-    let Some((param, _)) = state.inspect else {
+    let Some(param) = state.inspect else {
         return Vec::new();
     };
     let Some(target) = target_of(param) else {
@@ -279,19 +262,22 @@ pub(super) fn inspector(
                 ink,
             );
             // The LFO page's own route is not a MATRIX route and keeps working with every route off: say so.
-            if let Some(percent) = page_lfo_on(params, param) {
-                let note = format!(
-                    "The LFO page also drives this knob ({percent:+.0} %): set its AMOUNT to the middle to stop it."
-                );
-                widgets::shrink(
-                    ui.painter(),
-                    m,
-                    row(7.9, 0.9),
-                    Align2::CENTER_CENTER,
-                    &note,
-                    8,
-                    ink.gamma_multiply(0.75),
-                );
+            for (source, page) in [(1, "LFO"), (2, "EG")] {
+                if let Some(range) = page_range(params, param, source) {
+                    let note = format!(
+                        "The {page} page also drives this knob ({:+.0} %): set its AMOUNT to the middle to stop it.",
+                        100.0 * range
+                    );
+                    widgets::shrink(
+                        ui.painter(),
+                        m,
+                        row(7.9 + 0.5 * (source - 1) as f32, 0.7),
+                        Align2::CENTER_CENTER,
+                        &note,
+                        8,
+                        ink.gamma_multiply(0.75),
+                    );
+                }
             }
             // `Done` closes it (a tap outside or Escape do too).
             let done = row(9.2, 1.3);
@@ -410,34 +396,6 @@ pub(super) fn inspector(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_lfo_pages_own_route_is_named_for_the_knob_it_drives() {
-        // AMOUNT (34) at the middle is none; DEST (35) FLT is the cutoff (21), MOD the mod amount (15), LVL the level
-        // (1) and PAN the pan (2); FREQ is a pitch and has no knob.
-        let params = |amount: f32, dest: f32| {
-            let mut p = vec![0.5; 77];
-            (p[34], p[35]) = (amount, dest);
-            p
-        };
-        assert_eq!(page_lfo_on(&params(0.5, 0.0), 21), None);
-        assert_eq!(page_lfo_on(&params(1.0, 0.0), 21), Some(100.0));
-        assert_eq!(page_lfo_on(&params(0.25, 0.0), 21), Some(-50.0));
-        assert_eq!(page_lfo_on(&params(1.0, 0.0), 22), None, "another knob");
-        for (dest, knob) in [(0.25, 15), (0.75, 1), (1.0, 2)] {
-            assert_eq!(
-                page_lfo_on(&params(1.0, dest), knob),
-                Some(100.0),
-                "dest {dest}"
-            );
-        }
-        assert_eq!(
-            page_lfo_on(&params(1.0, 0.5), 21),
-            None,
-            "FREQ drives a pitch"
-        );
-        assert_eq!(page_lfo_on(&[], 21), None);
-    }
 
     #[test]
     fn the_pages_own_routes_give_a_ring_by_the_engines_laws() {

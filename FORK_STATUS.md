@@ -3,6 +3,15 @@
 Übergabe zwischen Sitzungen. **Zuerst lesen, wenn eine neue Sitzung beginnt.** `CLAUDE.md` hat die Arbeitsregeln und die
 Architektur; diese Datei den Stand. Nach jedem Schritt hier nachtragen. Stand: Ende Tag 2 (Commit `e5e5780` und danach).
 
+## 0. Aktueller Stand (Tag 4, 28.11.)
+
+- Letzter bewährter Build: Commit `7162300` (Graphite-Theme, Wavetables, Matrix, P-Locks, Untermenüs). Rücksprung-Punkte und die
+  Anleitung zum Zurückgehen: **`STAENDE.md`**.
+- Lokal in Arbeit, noch nicht gebaut (siehe 3k): Regler im Bogen-Stil mit massivem Körper (Wert nur in der Drag-Blase), Aufräumen.
+- Als Nächstes (Plan steht in 4f): **Automation zeichnen mit dem S-Pen und direkt in der Zeitleiste bearbeiten**; danach WAV-Import
+  (4e Teil C).
+- Regel: nichts bauen, bevor der Besitzer es freigibt; zwischendurch kurze Zwischenstände.
+
 ## 1. Worum es geht
 
 Der/die Besitzer:in (keine Programmierkenntnisse, arbeitet **nur auf dem Handy, Android, Hochformat**, spricht Deutsch)
@@ -66,7 +75,7 @@ zu weit verloren gehen.
 - Infrastruktur: Android-Debug-Workflow (`android-debug.yml`, mit optionalem `ref`), Windows/macOS-CI nur manuell, GPL-Merkzettel,
   Fork öffentlich, Commits als „Claude" ohne E-Mail, Link zur Sitzung in den Commit-Texten (Besitzer ok damit).
 
-## 3b. Gebaut und getestet, aber NOCH NICHT als APK gebaut (wartet auf Rückfrage vor dem Build)
+## 3b. Gebaut (Tag 2): Spektrum, bewegter Filter, LFO-Notenwerte (in APK `92b3eb3`)
 
 - Kleine Korrekturen aus dem Feedback zur APK `3587d86`: (1) Envelope-Anzeige: eine Stufe mit der Zeit 0 ist jetzt senkrecht
   (`env_weight` ab 0, feste Gesamtbreite, danach flache Linie), Breite folgt der Zeit; (2) OSC-Anzeige: bei langsamem B öffnet
@@ -81,7 +90,7 @@ zu weit verloren gehen.
   Wert bei jeder Note), LFO-Seite mit MODE-Menü und LOW/HIGH-Knöpfen (nur bei Zufallsmodi sichtbar), Anzeige mit Band und Stufen.
   *Noch nicht gebaut:* Sync-Modi über das vorhandene tempo-synchrone RATE hinaus (freie Hz-Rate), LFO pro Stimme.
 
-## 3c. Feedback zur APK `a053c5b` und Umsetzung (gebaut und getestet, NOCH NICHT als APK; wartet auf Rückfrage)
+## 3c. Feedback zur APK `a053c5b` und Umsetzung (erledigt, in APK `92b3eb3`)
 
 - LFO-Seite: AMOUNT-Knopf winzig -> AMOUNT steht jetzt in der Knopfreihe unten (mit KEY, LOW, HIGH), die Seitenspalte hat 5 Menüs
   (MODE, SHAPE, DEST, RATE, SYNC) bei ~1.1 U Höhe (Abstand der Seitenspalte 0.06 U).
@@ -96,7 +105,7 @@ zu weit verloren gehen.
 
 > Regel seit Tag 3: Pushen und Bauen ist erlaubt. Nach Feedback einmal den Plan abstimmen, dann bis zur APK durchziehen.
 
-## 3d. Mod-Matrix (Schritt 1, lokal committet, NICHT gepusht, keine APK)
+## 3d. Mod-Matrix (Tag 3, erledigt, in APK `9115dd9`)
 
 - Engine (`crates/audio/src/gmsynth.rs`): 4 freie Routen (Quelle LFO oder EG, Ziel aus 17 weichen Reglern, Betrag
   bipolar, Mitte = 0). Die Routen wirken auf eine Kopie der Parameter pro 32-Sample-Block (keine Speicher-Allokation,
@@ -158,11 +167,11 @@ Nächste Schritte (Reihenfolge nach Feedback des Besitzers):
 6. **Trance Delay** aufwerten (3/16-Timing, moderne UI im Farbthema), siehe 3g.
 7. Upstream-Check (`daijro/honeydew`) vor größeren Vorhaben, Änderungen gezielt übernehmen.
 
-## 3i. Design im Stil moderner Wavetable-Synths (Tag 4, Schritt 1, gebaut, Tests grün, NOCH NICHT als APK)
+## 3i. Design im Stil moderner Wavetable-Synths (Tag 4, Schritt 1, erledigt, Feinschliff in APK `7162300`)
 
 Auftrag des Besitzers (Referenz: Pigments-Screenshot): die ganze App soll diesem Design folgen: dunkle Tastatur, neu gestaltete
 Regler. Entscheidungen: Umfang "Theme + Regler + Keyboard", Regler-Look nur im neuen Theme (Theme-Schalter), Build erst nach dem
-Wavetable-Test des Besitzers: dieser Stand ist nur lokal committet und nicht gepusht, bis der Besitzer es freigibt.
+Wavetable-Test des Besitzers; inzwischen gebaut. Regler-Stil seit Tag 4 (Nachmittag): massiver Körper, Wert nur in der Drag-Blase (siehe 3k).
 
 - Neues Built-in-Theme **Graphite** (Nr. 9): dunkle Graphit-Flächen (`#17181B` bis `#33373D`) mit **unserer üblichen Akzentfarbe**
   (nur Farben und Zeichenstil, kein Layout), dunkle Tastatur (weiß `#8B9097`, schwarz `#15171A`, gedrückte Tasten in der Kanalfarbe)
@@ -181,6 +190,14 @@ Wavetable-Test des Besitzers: dieser Stand ist nur lokal committet und nicht gep
 - "Modulation hängt nach": Die Matrix schaltet sauber ab (Test für alle 19 Ziele, CSTM-Speichern an/aus getestet). Wahrscheinlicher
   Grund: die **LFO-Seite hat ihre eigene feste Route** (DEST und AMOUNT), die mit allen Matrix-Routen aus weiterläuft. Das Modulate-
   Fenster nennt sie jetzt ("The LFO page also drives this knob (+40 %)"). Falls es weiter auftritt: genauen Ablauf erfragen.
+
+## 3k. Regler im Bogen-Stil überarbeitet (Tag 4, Nachmittag, lokal, noch nicht gebaut)
+
+Rückmeldung: der weiße Strich überdeckte manchmal die Zahl; der Wert muss nicht in der Mitte stehen, im Original steht er in einer
+kleinen abgerundeten Blase am Finger (Honeydew #171, `widgets/bubble.rs`). Umsetzung: Der Bogen-Regler hat einen massiven Körper
+(`menu_fill` mit weichem Licht von oben und dunklem Rand, Zeiger kurz und rund, Wertebogen außen) und zeigt **keinen Wert auf dem Regler**
+mehr; beim Ziehen zeigt die vorhandene Blase den Wert (Einstellung "Show value while dragging" gilt). Klassische Regler unverändert.
+Aufgeräumt: `PanelState.inspect` ohne ungenutzte Position, `page_lfo_on` durch `page_range` ersetzt (Hinweis für LFO- und EG-Seite).
 
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
@@ -446,6 +463,51 @@ sind gebaut. Kopien (Einfügen, Duplizieren, Doppeln) und Clip-Operationen in de
 Teil C (WAV-Import) folgt als eigener Schritt: die Auswahl läuft wie bei der 3x-Osc-Custom-Welle über den Sample-Picker
 (`actions.module_sample`, `picks::load_pick`); der GM-Synth-`CSTM` hat nur feste Felder, deshalb braucht der Pfad der Tabelle einen
 eigenen Honeydew-Block im Modul (nicht im `CSTM`), den Sample-Cache beim Bauen der Engine und die Bündelung beim Export.
+
+## 4f. Plan: Automation zeichnen (S-Pen) und direkt in der Zeitleiste bearbeiten (Tag 4, Entwurf, noch nichts gebaut)
+
+Wunsch des Besitzers: Automation mit dem S-Pen frei am Raster zeichnen, mit einem umschaltbaren Modus **Zeichnen** oder **Punkte setzen**
+(und einem Stepped-Modus); außerdem Automation direkt im Zeitleisten-Fenster bearbeiten, ähnlich wie bei Ableton Live.
+
+**Ausgangslage im Code (geprüft)**
+- Der Automations-Editor (`src/ui/automation/`, 4200 Zeilen) kennt nur Punkte: Tippen auf leeres Raster erzeugt einen Punkt, ein Finger auf leerem Raster
+  scrollt, ein Zug von einem Punkt verschiebt ihn, lang drücken auf leerem Raster öffnet Einfügen/Rahmen. Es gibt **keinen Zeichenmodus**.
+- Automations-Lanes sind Playlist-Zeilen mit Clips (`LaneKind::Automation`); der Clip hält die Punkte, eine Miniatur der Kurve ist schon im Clip sichtbar.
+  Eine Aufnahme von Reglerbewegungen in Automation existiert (`src/app/auto_record.rs`, `record_point`).
+- Eingabe: Der vendorte `winit` (`vendor/winit/src/platform_impl/android/mod.rs`) reicht Berührungen mit `force` (Druck) durch; für die Maus sind
+  `ToolType::Mouse` und Hover schon behandelt, **Stift (`ToolType::Stylus`) und Radierer nicht**. Zwischenpunkte pro Frame (Historie) kommen nicht an, bei
+  schnellen Strichen wäre die Kurve eckig. Die Abhängigkeit `android-activity` 0.6.1 muss beim Bauen auf Historien-Zugriff geprüft werden.
+
+**Entwurf, Teil 1: Zeichenmodus im Automations-Editor (klein bis mittel)**
+- Ein Schalter in der Editor-Leiste: **Punkte** (heute) und **Zeichnen** (Stift-Symbol), gemerkt je Sitzung. Im Zeichenmodus schreibt ein Zug über das Raster
+  die Kurve, ohne Scrollen (Scrollen dann mit zwei Fingern oder dem Zeitlineal).
+- Zwei Zeichenstile, umschaltbar: **Glatt** (der Strich wird zu wenigen Punkten ausgedünnt, damit der Clip nicht Tausende Punkte hält; Ramer-Douglas-Peucker
+  mit Toleranz in Wert-Rasterschritten) und **Stepped** (Treppe: je Zeitraster-Schritt ein Wert, gehalten bis zum nächsten).
+- Beim Zeichnen werden vorhandene Punkte im überstrichenen Zeitbereich ersetzt (wie Ableton), mit Wert-Einrasten wie bisher. **Ein Strich = ein Undo-Schritt**
+  (`SongEdit::Final` beim Loslassen, `Ongoing` währenddessen).
+- Tests: Ausdünnen (Form bleibt innerhalb der Toleranz), Stepped-Treppe, Ersetzen im Bereich, Undo-Schritt, Grenzen am Clip-Anfang und -Ende.
+
+**Entwurf, Teil 2: Stift erkennen und Latch (mittel)**
+- *Stift-Erkennung (optional, danach):* im vendorten winit den Werkzeugtyp unterscheiden und Stift-Berührungen kennzeichnen (z. B. über das Gerät oder ein
+  Merkmal im Druckwert), damit im Zeichenmodus **nur der Stift zeichnet und der Finger scrollt** (Handballen-Schutz). Ohne diesen Schritt zeichnet jeder Zeiger im
+  Zeichenmodus. Außerdem die Historienpunkte als zusätzliche Bewegungen durchreichen, damit schnelle Striche glatt sind.
+- *Latch (Aufnahme):* Während der Wiedergabe schreibt ein Regler, den man bewegt, Automation; **Latch** hält den letzten Wert nach dem Loslassen bis zum Stopp,
+  **Touch** springt zurück. Der Kern (`auto_record.rs`) ist da; offen ist ein sichtbarer Schalter (Aus, Touch, Latch) im Transport. Als eigener Schritt, mit dem
+  Besitzer abzusprechen.
+
+**Entwurf, Teil 3: Automation direkt in der Zeitleiste (groß, nach Teil 1)**
+- Voraussetzung ist die gemeinsame Zeit- und Wertgeometrie von Playlist und Editor (Punkt B1 in 4d): ein Zeitachsen-Objekt, gleiche Zoomstufen und Einrasten.
+- Die Automations-Zeile der Playlist lässt sich **aufklappen** (höher machen, etwa 4 U) und zeigt die Kurve ihrer Clips groß; im aufgeklappten Zustand arbeitet
+  derselbe Editor **in der Zeile**: Punkte setzen und ziehen, Zeichenmodus, Auswahl, Rahmen, mit denselben Gesten wie im Editor, auf dem Maßstab der Zeitleiste.
+- Zeichnen oder Setzen **außerhalb eines Clips** legt automatisch einen Clip an oder verlängert den vorhandenen (wie bei Ableton, wo Breakpoints überall liegen).
+- Zeilenkopf: **„Parameter : Modul"** in der Modulfarbe, Tippen öffnet die Parameterwahl; Knöpfe für Zeichnen/Punkte und Stepped. Mehrere Lanes pro Spur
+  nebeneinander aufklappbar.
+- Risiken: der Editor ist heute ein eigener Bildschirm (Scroller, Auswahl, Zwischenablage); ihn als Teil der Playlist wiederzuverwenden heißt, ihn in eine
+  Komponente mit eigener Fläche und geteiltem Scroller zu zerlegen. Deshalb in Stufen: (a) Zeile aufklappen und nur anzeigen, (b) Punkte setzen/ziehen, (c) Zeichnen,
+  (d) Auswahl und Zwischenablage. Je Stufe Tests (Geometrie, Gesten), ein Commit, vorher Skizze mit dem Besitzer.
+
+**Reihenfolge und Aufwand:** Teil 1 zuerst (M, sofort nützlich mit dem Stift), dann Teil 2 (Stift-Erkennung, S bis M; Latch-Schalter M), dann Teil 3 in Stufen (L).
+Offene Entscheidungen für den Besitzer: siehe das Fragen-Panel dieser Sitzung (Zeichenstil-Standard, Stift-Erkennung, Reihenfolge).
 
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
