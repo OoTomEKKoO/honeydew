@@ -118,6 +118,10 @@ Display: Die GUI lässt sich hier nur eingeschränkt ausprobieren (Tests + ggf. 
 - **Rückfragen über das Fragen-Panel (AskUserQuestion).** Der Besitzer findet das angenehm: Bei Klärungsbedarf, Auswahl
   zwischen Varianten oder uneindeutigen Wünschen lieber öfter ein Fragen-Panel mit 2–4 klaren Optionen (Empfehlung zuerst)
   zeigen, statt zu raten oder lange Textfragen zu stellen. Nur echte Entscheidungen, keine Routinefragen.
+- **Zwischenstände.** Bei längeren Aufgaben dem Besitzer zwischendurch kurz sagen, woran gerade gearbeitet wird (ein bis zwei Sätze
+  zwischen den Schritten), nicht erst am Ende.
+- **Rücksprung-Punkte.** Nach jedem Build, der sich bewährt hat, den Commit in `STAENDE.md` eintragen (Datei erklärt auch, wie
+  man zurückgeht). Nie Force-Push; alles bleibt im Verlauf.
 - Pro Feature: kleine, einzeln lauffähige Schritte, jeder Schritt = ein Commit.
 
 ## Lizenz (GPL-3.0-or-later) – Merkzettel für später
