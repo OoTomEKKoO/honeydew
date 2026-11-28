@@ -213,6 +213,13 @@ Rückmeldung zum Screenshot der APK `f9471bc` und Umsetzung:
   Themes behalten die alten Menüs.
 Offen in Paket 6: WAV-Import, Zeichenmodus im Automations-Editor.
 
+
+## 3m. Paket 6, Teil 2: WAV-Import und Zeichenmodus (Tag 4, Abend)
+
+- **WAV-Import für Wavetables**: Eintrag „Custom“ in der Wellenform-Auswahl, eigene Tabellen liegen im Song (`HDWt`), Engine-Register, Bild und Name im Panel.
+- **Zeichenmodus im Automations-Editor**: Schalter oben rechts im Raster (`Points` / `Draw`). Im Zeichenmodus zeichnet auch der Finger eine Kurve statt zu verschieben; zweiter Schalter `Smooth` (glatt, Standard) / `Steps` (Treppe, Schrittweite = Snap-Raster). Ein Strich ersetzt die Punkte darunter und ist ein Undo-Schritt. Logik in `src/song/points.rs` (`drawn`, `thin`), Tests dazu.
+- Nächster Schritt: Automation direkt in der Timeline bearbeiten (zunächst nur Punkte).
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:
