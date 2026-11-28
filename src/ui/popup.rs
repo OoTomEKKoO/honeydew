@@ -1,6 +1,8 @@
 //! The popup menu: a grid of text items on a `menuFill` panel (a Honeydew change: FL Studio Mobile's is inverted, a
 //! `text` fill with `background` ink, which is glaring over a dark UI). The item the menu stands for is a `background`
-//! bar under a full `text` label. No border, shadow or rounding.
+//! bar under a full `text` label. No border or shadow, and no rounding, unless the theme asks for its `roomyMenus` look
+//! (Honeydew change): rounded corners, taller rows, larger labels, and rounded bands inset a little for the current and the
+//! touched item.
 
 use std::borrow::Cow;
 
@@ -19,6 +21,58 @@ const ROW_H: f32 = 1.25;
 /// this; below it the popup scrolls.
 const MIN_ROW_H: f32 = 1.0;
 pub(crate) const PAD_X: f32 = 0.5;
+/// The `roomyMenus` look: taller rows and more room at the sides, in U, and the rounded corners of the panel and of the bands
+/// (inset [`BAND_INSET`] from their cell).
+const ROOMY_ROW_H: f32 = 1.6;
+const ROOMY_PAD_X: f32 = 0.7;
+const CORNER: f32 = 0.35;
+const BAND_CORNER: f32 = 0.25;
+const BAND_INSET: f32 = 0.08;
+
+/// A popup's look: the original's, or the theme's roomy one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Look {
+    roomy: bool,
+}
+
+impl Look {
+    fn row_h(self) -> f32 {
+        if self.roomy { ROOMY_ROW_H } else { ROW_H }
+    }
+
+    fn pad_x(self) -> f32 {
+        if self.roomy { ROOMY_PAD_X } else { PAD_X }
+    }
+
+    /// Labels: 10 pt and headers 12 pt, or 12 pt and 14 pt.
+    fn font<T>(self, item: &PopupItem<T>, m: &Metrics) -> egui::FontId {
+        m.font_id(match (self.roomy, item.is_header()) {
+            (false, false) => FontSize::Pt10,
+            (false, true) => FontSize::Pt12,
+            (true, false) => FontSize::Pt12,
+            (true, true) => FontSize::Pt14,
+        })
+    }
+
+    /// The corner radius of a fill of `radius` U, in points: none in the original look.
+    fn round(self, radius: f32, m: &Metrics) -> u8 {
+        if self.roomy {
+            m.u(radius).round().min(255.0) as u8
+        } else {
+            0
+        }
+    }
+
+    /// The band of a hovered or current item: its `cell`, inset a little in the roomy look so that it floats inside the
+    /// panel's rounded corners.
+    fn band(self, cell: Rect, m: &Metrics) -> Rect {
+        if self.roomy {
+            cell.shrink(m.u(BAND_INSET))
+        } else {
+            cell
+        }
+    }
+}
 /// The `dot` flag: a filled circle at the item's right edge, with a gap between it and the text.
 const DOT_R: f32 = 0.1;
 const DOT_GAP: f32 = 0.25;
@@ -210,7 +264,10 @@ fn show_as<T: Copy>(
     on_box: bool,
 ) -> PopupResult<T> {
     let m = cx.m;
-    let (rect, cells) = geometry(ctx, items, center, bounds, m);
+    let look = Look {
+        roomy: cx.theme.options.roomy_menus,
+    };
+    let (rect, cells) = geometry_in(ctx, items, center, bounds, m, look);
     let c = &cx.theme.colors;
     // A message box's items are light on its dark box, which takes the place of the popup's fill.
     let (fill, ink) = match on_box {
@@ -255,7 +312,7 @@ fn show_as<T: Copy>(
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let painter = ui.painter();
         if let Some(shape) = sweep.fill(rect, m).filter(|_| !on_box) {
-            painter.rect_filled(shape, 0.0, fill);
+            painter.rect_filled(shape, look.round(CORNER, m), fill);
         }
         // Until the sweep is done (or while a message box opens) the items take input but are not drawn.
         let mut painter = painter.clone();
@@ -271,7 +328,7 @@ fn show_as<T: Copy>(
                     egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &item.label)
                 });
                 if response.hovered() || response.is_pointer_button_down_on() {
-                    painter.rect_filled(cell, 0.0, band);
+                    painter.rect_filled(look.band(cell, m), look.round(BAND_CORNER, m), band);
                 }
                 if response.clicked() {
                     result.selected = Some(value);
@@ -294,17 +351,21 @@ fn show_as<T: Copy>(
                 dim(ink)
             };
             if item.current {
-                painter.rect_filled(cell, 0.0, dim(current_bar));
+                painter.rect_filled(
+                    look.band(cell, m),
+                    look.round(BAND_CORNER, m),
+                    dim(current_bar),
+                );
             }
             painter.text(
-                pos2(cell.left() + m.u(PAD_X), cell.center().y),
+                pos2(cell.left() + m.u(look.pad_x()), cell.center().y),
                 Align2::LEFT_CENTER,
                 item.label.as_ref(),
-                font(item, m),
+                look.font(item, m),
                 color,
             );
             if item.dot {
-                let dot = pos2(cell.right() - m.u(PAD_X + DOT_R), cell.center().y);
+                let dot = pos2(cell.right() - m.u(look.pad_x() + DOT_R), cell.center().y);
                 painter.circle_filled(dot, m.u(DOT_R), color);
             }
         }
@@ -413,14 +474,6 @@ impl Sweep {
     }
 }
 
-fn font<T>(item: &PopupItem<T>, m: &Metrics) -> egui::FontId {
-    m.font_id(if item.is_header() {
-        FontSize::Pt12
-    } else {
-        FontSize::Pt10
-    })
-}
-
 /// The popup's screen rect and the rect of each item's cell (in `items` order).
 fn geometry<T>(
     ctx: &Context,
@@ -429,17 +482,33 @@ fn geometry<T>(
     bounds: Rect,
     m: &Metrics,
 ) -> (Rect, Vec<Rect>) {
+    geometry_in(ctx, items, center, bounds, m, Look { roomy: false })
+}
+
+/// [`geometry`] in `look`.
+fn geometry_in<T>(
+    ctx: &Context,
+    items: &[PopupItem<T>],
+    center: Pos2,
+    bounds: Rect,
+    m: &Metrics,
+    look: Look,
+) -> (Rect, Vec<Rect>) {
     let text_w: Vec<f32> = items
         .iter()
         .map(|item| {
             ctx.fonts_mut(|f| {
-                f.layout_no_wrap(item.label.to_string(), font(item, m), Color32::PLACEHOLDER)
-                    .size()
-                    .x
+                f.layout_no_wrap(
+                    item.label.to_string(),
+                    look.font(item, m),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
             })
         })
         .collect();
-    let (size, cells) = grid(items, &text_w, bounds.height(), m);
+    let (size, cells) = grid_in(items, &text_w, bounds.height(), m, look);
     let rect = place(size, center, bounds, m);
     (
         rect,
@@ -454,7 +523,19 @@ fn geometry<T>(
 /// and each item's cell relative to the popup's top-left. Columns are as wide as their widest item, so all
 /// items of a column share one width. Rows are 1.25 U, or less when that is taller than `max_h`, the height of the
 /// bounds (never below 1 U).
+#[cfg(test)]
 fn grid<T>(items: &[PopupItem<T>], text_w: &[f32], max_h: f32, m: &Metrics) -> (Vec2, Vec<Rect>) {
+    grid_in(items, text_w, max_h, m, Look { roomy: false })
+}
+
+/// [`grid`] in `look`.
+fn grid_in<T>(
+    items: &[PopupItem<T>],
+    text_w: &[f32],
+    max_h: f32,
+    m: &Metrics,
+    look: Look,
+) -> (Vec2, Vec<Rect>) {
     let cols = items.iter().map(|i| i.col + 1).max().unwrap_or(0);
     let rows = items.iter().map(|i| i.row + 1).max().unwrap_or(0);
     let mut col_w = vec![0.0f32; cols];
@@ -464,12 +545,12 @@ fn grid<T>(items: &[PopupItem<T>], text_w: &[f32], max_h: f32, m: &Metrics) -> (
         } else {
             0.0
         };
-        col_w[item.col] = col_w[item.col].max(m.round_px(w + dot + 2.0 * m.u(PAD_X)));
+        col_w[item.col] = col_w[item.col].max(m.round_px(w + dot + 2.0 * m.u(look.pad_x())));
     }
     // Whole device pixels, rounded down when shrinking so that the rows fit.
     let fit = m.floor_px(max_h / rows.max(1) as f32);
     let row_h = m
-        .round_px(m.u(ROW_H))
+        .round_px(m.u(look.row_h()))
         .min(fit)
         .max(m.round_px(m.u(MIN_ROW_H)));
     let mut col_x = vec![0.0f32; cols];
@@ -513,6 +594,33 @@ mod tests {
 
     fn item(col: usize, row: usize, label: &'static str) -> PopupItem<usize> {
         PopupItem::new(col * 10 + row, col, row, label)
+    }
+
+    /// The roomy look (a theme's `roomyMenus`): taller rows and wider padding than the original's, rounded corners only there.
+    #[test]
+    fn the_roomy_look_has_taller_rows_more_padding_and_rounding_and_the_original_has_none() {
+        let m = metrics();
+        let items = [item(0, 0, "Alpha"), item(0, 1, "Beta")];
+        let classic = grid_in(&items, &[100.0, 80.0], TALL, &m, Look { roomy: false });
+        let roomy = grid_in(&items, &[100.0, 80.0], TALL, &m, Look { roomy: true });
+        // U is 32 points: 1.25 U rows are 40, 1.6 U rows 51; padding 0.5 U a side against 0.7 U.
+        assert_eq!((classic.0.y, roomy.0.y), (80.0, 102.0));
+        assert_eq!((classic.0.x, roomy.0.x), (132.0, 145.0));
+        assert!(roomy.1[0].height() > classic.1[0].height());
+        assert_eq!(Look { roomy: false }.round(CORNER, &m), 0);
+        assert_eq!(Look { roomy: true }.round(CORNER, &m), 11);
+        // A band floats inside its cell in the roomy look only.
+        let cell = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 50.0));
+        assert_eq!(Look { roomy: false }.band(cell, &m), cell);
+        assert!(cell.contains_rect(Look { roomy: true }.band(cell, &m)));
+        assert_ne!(Look { roomy: true }.band(cell, &m), cell);
+        // The labels are a size larger.
+        let item = item(0, 0, "x");
+        let (a, b) = (
+            Look { roomy: false }.font(&item, &m),
+            Look { roomy: true }.font(&item, &m),
+        );
+        assert!(b.size > a.size);
     }
 
     #[test]

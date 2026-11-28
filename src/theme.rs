@@ -155,6 +155,9 @@ pub struct ThemeOptions {
     /// Honeydew's own: the keyboard is drawn as if it lay under the bar above it: a soft shadow falls from the top edge
     /// of the key panel, and each key has a faint vertical shade. Off: flat keys, as the original.
     pub key_shadow: bool,
+    /// Honeydew's own: the popup menus are drawn roomy: rounded corners, taller rows and larger labels, rounded bands for the
+    /// current and the touched item. Off: the original's compact square menus.
+    pub roomy_menus: bool,
 }
 
 /// A fully resolved theme.
@@ -204,6 +207,7 @@ struct RawOptions {
     playlist_track_background_transparency: Option<f32>,
     knob_arc: Option<bool>,
     key_shadow: Option<bool>,
+    roomy_menus: Option<bool>,
 }
 
 /// A file may leave out anything: the id and name too (an imported file is named after itself, [`import`]).
@@ -254,6 +258,7 @@ impl RawTheme {
                     .unwrap_or(1.0),
                 knob_arc: o.knob_arc.unwrap_or(false),
                 key_shadow: o.key_shadow.unwrap_or(false),
+                roomy_menus: o.roomy_menus.unwrap_or(false),
             },
         }
     }
@@ -295,6 +300,7 @@ pub fn builtin_themes() -> Vec<Theme> {
                 playlist_track_background_transparency: opt(3),
                 knob_arc: None,
                 key_shadow: None,
+                roomy_menus: None,
             }),
         }
     };
@@ -381,9 +387,10 @@ pub fn builtin_themes() -> Vec<Theme> {
     .into_iter()
     .map(RawTheme::resolve)
     .map(|mut theme| {
-        // The look options of the Graphite theme: arc knobs and shaded keys.
+        // The look options of the Graphite theme: arc knobs, shaded keys and roomy menus.
         theme.options.knob_arc = theme.id == 9;
         theme.options.key_shadow = theme.id == 9;
+        theme.options.roomy_menus = theme.id == 9;
         theme
     })
     .collect()
@@ -492,6 +499,31 @@ mod tests {
         let o = theme_by_id(3).options;
         assert!(near(o.accent_saturation, 0.7961, 1e-4));
         assert!(near(o.playlist_track_background_transparency, 0.7453, 1e-4));
+    }
+
+    /// Graphite is the one built-in theme with the look options (arc knobs, shaded keys, roomy menus); a theme file that leaves
+    /// them out has none, and a file can switch each on.
+    #[test]
+    fn only_graphite_has_the_look_options_and_a_file_can_set_them() {
+        for theme in builtin_themes() {
+            let o = &theme.options;
+            let on = (o.knob_arc, o.key_shadow, o.roomy_menus);
+            assert_eq!(
+                on,
+                (theme.id == 9, theme.id == 9, theme.id == 9),
+                "{}",
+                theme.name
+            );
+        }
+        let plain =
+            Theme::from_json(r#"{"name": "x", "colors": {"background": "101010"}}"#).unwrap();
+        assert!(!plain.options.knob_arc && !plain.options.key_shadow && !plain.options.roomy_menus);
+        let set =
+            Theme::from_json(r#"{"options": {"knobArc": true, "roomyMenus": true}}"#).unwrap();
+        assert!(set.options.knob_arc && set.options.roomy_menus && !set.options.key_shadow);
+        // And it survives a save and a load.
+        let back = Theme::from_json(&set.to_json()).unwrap();
+        assert_eq!(back.options, set.options);
     }
 
     #[test]
