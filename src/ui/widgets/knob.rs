@@ -68,6 +68,10 @@ fn dial(ui: &Ui, cx: &UiCtx, c: &Control, response: &Response, v: f32) -> (Pos2,
     let lit = touched || hovered(ui, response);
     let swell = pulse(ui, c.id, touched, c.rect.height() * m.ppp());
     let center = body.center();
+    if cx.theme.options.knob_arc {
+        let r = paint_arc_knob(ui, cx, c, center, diameter(body) * swell, v, (lit, touched));
+        return (center, r);
+    }
     let r = ring(center, diameter(body) * swell, v, c.bipolar, m.t());
     painter.circle_filled(center, r.outer, c.channel);
     painter.circle_filled(center, r.inner, module_fill);
@@ -117,7 +121,86 @@ fn mod_arc(center: Pos2, radius: f32, v: f32, amount: f32) -> Vec<Pos2> {
     if !amount.is_finite() || amount == 0.0 {
         return Vec::new();
     }
-    let (from, to) = (v.clamp(0.0, 1.0), (v + amount).clamp(0.0, 1.0));
+    arc_between(center, radius, v, v + amount)
+}
+
+/// The arc knob's radii as fractions of its diameter `d`: the value arc's centre line, and the body it surrounds.
+const ARC_RADIUS: f32 = 0.43;
+const ARC_BODY: f32 = 0.32;
+/// The arc's stroke, and the pointer's start and end on the body, as fractions of `d`.
+const ARC_STROKE: f32 = 0.05;
+const POINTER: (f32, f32) = (0.08, 0.26);
+
+/// The body radius of an arc knob of diameter `d`: what a knob's value text and a graph knob's plot are fitted to.
+pub(super) fn arc_body(d: f32) -> f32 {
+    ARC_BODY * d
+}
+
+/// Draws a knob in the arc style (a theme's `knobArc`, the Graphite look) and returns its geometry as a [`Ring`]: a dim
+/// track over the knob's travel, the value in the channel colour over it from the knob's rest (the end for a unipolar
+/// knob, the middle for a bipolar one) to the value with a round cap, a dark body inside with a faint rim, and a light
+/// pointer from the body's middle towards the value. Touched or hovered, the body is lightly washed in the channel colour.
+fn paint_arc_knob(
+    ui: &Ui,
+    cx: &UiCtx,
+    c: &Control,
+    center: Pos2,
+    d: f32,
+    v: f32,
+    (lit, touched): (bool, bool),
+) -> Ring {
+    let (colors, painter) = (&cx.theme.colors, ui.painter());
+    let (text, body_fill) = (colors.text.to_color32(), colors.control_fill.to_color32());
+    let stroke = (ARC_STROKE * d).max(cx.m.t());
+    let radius = ARC_RADIUS * d;
+    // The travel: dim, round at both ends.
+    let track = arc_between(center, radius, 0.0, 1.0);
+    painter.add(PathShape::line(
+        track,
+        Stroke::new(stroke, text.gamma_multiply(0.18)),
+    ));
+    // The value, from the rest to where the knob stands.
+    let rest = if c.bipolar { 0.5 } else { 0.0 };
+    if (v - rest).abs() > 1e-4 {
+        let value = arc_between(center, radius, rest, v);
+        painter.add(PathShape::line(
+            value.clone(),
+            Stroke::new(stroke, c.channel),
+        ));
+        if let Some(&end) = value.last() {
+            painter.circle_filled(end, stroke * 0.5, c.channel);
+        }
+    }
+    // The body with its rim, brighter while touched.
+    let body = ARC_BODY * d;
+    painter.circle_filled(center, body, body_fill);
+    painter.circle_stroke(
+        center,
+        body,
+        Stroke::new(cx.m.t() * 0.5, text.gamma_multiply(0.14)),
+    );
+    if lit {
+        let wash = if touched { WASH * 2.0 } else { WASH };
+        painter.circle_filled(center, body, c.channel.gamma_multiply(wash));
+    }
+    // The pointer.
+    let (sin, cos) = dot_angle(v).sin_cos();
+    let at = |f: f32| center + f * d * vec2(-sin, cos);
+    let (from, to) = (at(POINTER.0), at(POINTER.1));
+    painter.line_segment([from, to], Stroke::new((stroke * 0.5).max(cx.m.t()), text));
+    Ring {
+        outer: radius + stroke * 0.5,
+        inner: body,
+        dot: to,
+        dot_r: stroke * 0.5,
+        halo_r: stroke,
+    }
+}
+
+/// The polyline from knob value `from` to value `to` on the circle of `radius`: a point every 4 degrees at most, along
+/// the knob's clockwise travel (`from` may be above `to`). One point for a sweep of nothing.
+fn arc_between(center: Pos2, radius: f32, from: f32, to: f32) -> Vec<Pos2> {
+    let (from, to) = (from.clamp(0.0, 1.0), to.clamp(0.0, 1.0));
     let sweep = (to - from).abs() * 0.9 * 360.0;
     let steps = ((sweep / 4.0).ceil() as usize).max(1);
     (0..=steps)
@@ -152,8 +235,12 @@ pub fn knob(
     // Fit-only sizing: 12 pt down to 6 pt, and at 6 pt it is drawn whatever its width. Fitted to the resting ring,
     // so that the press swell never steps the size mid-press.
     let (_, body, _) = c.strips(m);
-    let rest = ring(center, diameter(body), v, c.bipolar, m.t());
-    let max_w = value_width(rest.inner, m.t());
+    let inner = if cx.theme.options.knob_arc {
+        arc_body(diameter(body))
+    } else {
+        ring(center, diameter(body), v, c.bipolar, m.t()).inner
+    };
+    let max_w = value_width(inner, m.t());
     let galley = fit_only(ui.painter(), m, &display(v), max_w, c.channel);
     ui.painter()
         .galley(center - galley.size() / 2.0, galley, c.channel);

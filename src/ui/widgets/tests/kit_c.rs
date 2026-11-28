@@ -824,6 +824,60 @@ fn a_later_fingers_double_tap_resets_a_knob_while_the_first_holds_a_key() {
     assert_eq!(value.get(), 0.5, "the second tap resets to the default");
 }
 
+/// The points of every path (polyline) shape painted, by length.
+fn path_lengths(shapes: &[egui::epaint::ClippedShape]) -> Vec<usize> {
+    shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::epaint::Shape::Path(p) => Some(p.points.len()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A theme with `knobArc` draws a knob as arcs (a track and a value) round a body; the classic theme draws none, and the
+/// value arc grows with the value and starts at the middle for a bipolar knob.
+#[test]
+fn an_arc_theme_draws_a_knob_as_a_track_and_a_value_arc() {
+    let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(4.0 * U, 4.0 * U));
+    let run = |arc: bool, value: f32, default: f32| {
+        let v = Cell::new(value);
+        let mut bench = Bench::new(|ui, cx| {
+            let mut theme = theme_by_id(0);
+            theme.options.knob_arc = arc;
+            let cx = UiCtx {
+                theme: &theme,
+                m: cx.m,
+            };
+            let c = Control::new(Id::new("arc"), rect, "", Color32::RED, default);
+            let mut x = v.get();
+            let r = crate::ui::widgets::knob(ui, &cx, &c, &mut x, |v| format!("{v:.2}"));
+            v.set(x);
+            r
+        });
+        bench.frame(vec![]);
+        path_lengths(&bench.shapes)
+    };
+    assert!(
+        run(false, 0.5, 0.0).is_empty(),
+        "the classic knob draws no polylines"
+    );
+    let low = run(true, 0.2, 0.0);
+    let high = run(true, 0.9, 0.0);
+    assert_eq!((low.len(), high.len()), (2, 2), "a track and a value arc");
+    assert_eq!(low[0], high[0], "the track is the same");
+    assert!(
+        high[1] > low[1],
+        "the value arc grows with the value: {low:?} {high:?}"
+    );
+    // A bipolar knob at its middle has no value arc, only the track and the pointer.
+    assert_eq!(run(true, 0.5, 0.5).len(), 1, "{:?}", run(true, 0.5, 0.5));
+    // Left of the middle it has one, and it is as long as the same distance to the right.
+    let (left, right) = (run(true, 0.25, 0.5), run(true, 0.75, 0.5));
+    assert_eq!((left.len(), right.len()), (2, 2));
+    assert_eq!(left[1], right[1]);
+}
+
 #[test]
 fn a_boxed_list_boxes_the_selected_cell_in_menu_fill_inset_2t_and_draws_no_bars() {
     let index = Cell::new(1usize);

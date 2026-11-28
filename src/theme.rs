@@ -149,6 +149,9 @@ pub struct ThemeOptions {
     pub accent_lightness: f32,
     pub playlist_track_note_brightness: f32,
     pub playlist_track_background_transparency: f32,
+    /// Honeydew's own: knobs draw as a thin value arc round a dark body with a pointer (the Pigments look) instead of the
+    /// classic ring. A theme file that leaves it out has the classic knobs.
+    pub knob_arc: bool,
 }
 
 /// A fully resolved theme.
@@ -196,6 +199,7 @@ struct RawOptions {
     accent_lightness: Option<f32>,
     playlist_track_note_brightness: Option<f32>,
     playlist_track_background_transparency: Option<f32>,
+    knob_arc: Option<bool>,
 }
 
 /// A file may leave out anything: the id and name too (an imported file is named after itself, [`import`]).
@@ -244,12 +248,13 @@ impl RawTheme {
                 playlist_track_background_transparency: o
                     .playlist_track_background_transparency
                     .unwrap_or(1.0),
+                knob_arc: o.knob_arc.unwrap_or(false),
             },
         }
     }
 }
 
-/// The 9 built-in themes, in ID order 0..=8.
+/// The 10 built-in themes, in ID order 0..=9.
 pub fn builtin_themes() -> Vec<Theme> {
     // [background, controlFill, moduleFill, menuFill, text, accent]
     type Main = [u32; 6];
@@ -283,6 +288,7 @@ pub fn builtin_themes() -> Vec<Theme> {
                 accent_lightness: opt(1),
                 playlist_track_note_brightness: opt(2),
                 playlist_track_background_transparency: opt(3),
+                knob_arc: None,
             }),
         }
     };
@@ -355,9 +361,22 @@ pub fn builtin_themes() -> Vec<Theme> {
             Some([0xFFFFFF, 0x000000, 0xCCCCCC, 0x7C7C7C]),
             Some([1.00, 0.6439, 1.00, 0.1303]),
         ),
+        // Theme 9, Honeydew's own: a dark graphite with a cyan accent, a dark keyboard and arc knobs, after the look of
+        // modern wavetable synths. Its knobs are the one place `knob_arc` is on.
+        row(
+            9,
+            "Graphite",
+            [0x16181B, 0x1F2226, 0x262A2F, 0x30353B, 0xC4C9D0, 0x2CB5E8],
+            Some([0x8A8F96, 0x1A1C1F, 0x545960, 0x2C2F33]),
+            Some([0.85, 0.55, 1.00, 0.20]),
+        ),
     ]
     .into_iter()
     .map(RawTheme::resolve)
+    .map(|mut theme| {
+        theme.options.knob_arc = theme.id == 9;
+        theme
+    })
     .collect()
 }
 
@@ -469,10 +488,10 @@ mod tests {
     #[test]
     fn builtins_are_numbered_in_order_and_unknown_id_is_classic_gray() {
         let themes = builtin_themes();
-        assert_eq!(themes.len(), 9);
+        assert_eq!(themes.len(), 10);
         assert!(themes.iter().enumerate().all(|(i, t)| t.id == i as u32));
         assert_eq!(themes[7].name, "High Contrast A");
-        assert_eq!(theme_by_id(9).id, 0);
+        assert_eq!(theme_by_id(10).id, 0);
         assert_eq!(theme_by_id(u32::MAX).name, "Classic Gray");
         // A theme that sets its own keys and options: Deep Purple.
         let deep = &themes[1];

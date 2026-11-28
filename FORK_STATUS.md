@@ -158,6 +158,21 @@ Nächste Schritte (Reihenfolge nach Feedback des Besitzers):
 6. **Trance Delay** aufwerten (3/16-Timing, moderne UI im Farbthema), siehe 3g.
 7. Upstream-Check (`daijro/honeydew`) vor größeren Vorhaben, Änderungen gezielt übernehmen.
 
+## 3i. Design im Stil moderner Wavetable-Synths (Tag 4, Schritt 1, gebaut, Tests grün, NOCH NICHT als APK)
+
+Auftrag des Besitzers (Referenz: Pigments-Screenshot): die ganze App soll diesem Design folgen: dunkle Tastatur, neu gestaltete
+Regler. Entscheidungen: Umfang "Theme + Regler + Keyboard", Regler-Look nur im neuen Theme (Theme-Schalter), Build erst nach dem
+Wavetable-Test des Besitzers: dieser Stand ist nur lokal committet und nicht gepusht, bis der Besitzer es freigibt.
+
+- Neues Built-in-Theme **Graphite** (Nr. 9): dunkles Graphit (`#16181B` bis `#30353B`), Cyan-Akzent `#2CB5E8`, dunkle Tastatur
+  (weiß `#8A8F96`, schwarz `#1A1C1F`, gedrückte Tasten in der Kanalfarbe), `knobArc` an.
+- Neuer Theme-Schalter `knobArc` (`ThemeOptions.knob_arc`, JSON `knobArc`, Standard aus): Regler als dünner Wertebogen um einen
+  dunklen Körper mit hellem Zeiger statt des klassischen Rings (`ui/widgets/knob.rs`, `paint_arc_knob`). Bogen vom Ruhepunkt
+  (unipolar: Anfang, bipolar: Mitte) zum Wert in der Kanal-/Akzentfarbe, Spur dunkel; der Modulationsring liegt außerhalb.
+  Gilt für Regler, Strip-Regler und Graph-Regler (alle laufen durch `dial`). Eigene Themes können `"knobArc": true` setzen.
+- Offen für die nächsten Design-Schritte (vom Besitzer noch nicht beauftragt): abgerundete Karten mit dünnem Rand, Titelzeilen in
+  Großbuchstaben mit Akzent, Tabs mit farbiger Unterlinie, Wert unter dem Regler statt im Ring, Modulationsquellen-Leiste.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:
