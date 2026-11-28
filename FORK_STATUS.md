@@ -357,6 +357,24 @@ Reihenfolge innerhalb, weil jeder Schritt auf dem vorigen aufbaut:
   Kanal). Unklar, was fehlt: **Rückfrage** (Fragen-Panel): MIDI-Learn auf jeden Regler, Controller-Presets, Pitchbend/Aftertouch,
   USB-OTG am Handy, oder Bluetooth-MIDI?
 
+
+**E. Für später (vom Besitzer am Tag 4 auf die Liste gesetzt, noch nicht begonnen)**
+- E1 *Desktop-Layout und DeX-Modus* (L): Wenn der Besitzer die App über Samsung DeX nutzt, soll ein Modus die Oberfläche für
+  Desktop-Skalierung und Mausbedienung optimieren, mit Tastenkürzeln und Desktop-Funktionen, möglicherweise auch mit
+  Anpassungen für Fenstergröße und Einrasten (Snapping) wie unter Windows. Ausgangslage im Code: Tastenbelegungen als JSON
+  (`assets/content/keymaps/windows.json`, `mac.json`, `src/keymap.rs`), UI-Skalierung als Einstellung (`ui_scale`), Maus- und
+  Hover-Verhalten in den Widgets (Rechtsklick öffnet schon das Parametermenü). Plan: (1) DeX/Desktop-Modus erkennen
+  (`Configuration`-Änderungen, Fenstergröße und Zeigergerät über JNI, Muster `src/android.rs`), (2) eine Android-Tastenbelegung mit
+  den üblichen Kürzeln, (3) Hover-Hinweise, Mausrad-Zoom und Scrollen, Rechtsklick-Menüs überall, (4) dichtere Desktop-
+  Skalierung der Bedienelemente, (5) Fenster-Größenänderung und Snapping sauber durchreichen (kein Neustart der Engine).
+  Vorher klären: welche Kürzel zuerst, welcher Bildschirm und welche Skalierung in DeX.
+- E2 *Sampler umbauen* (L): mehr Regler wie Start- und Endpunkt, Loop-Funktion und mehr; als Basis dient der **Slicer** (er hat
+  schon Wellenform-Ansicht und Slice-Marker, `src/panels/inst/slicer.rs`; der DW Sampler `dw_sampler.rs` bleibt für Zonen).
+  Dazu **Drag and Drop aus dem Dateimanager direkt in den Sampler**. Ausgangslage: Datei-Ablage für Desktop gibt es
+  (`src/app/file_drop.rs`, `ui/file_drag`); unter Android kommt das Ablegen aus dem Dateimanager als `DragEvent` mit URIs in der
+  Activity an und braucht einen kleinen Java-Teil, der die Datei in den App-Speicher kopiert und der App den Pfad meldet (Muster
+  wie die Mikrofon-Rückmeldung). Passt zusammen mit C4 (Slicer-Regler) und D3 (Browser-Drag-and-Drop); sinnvoll als ein Paket.
+
 ### Empfohlener Ablauf (zur Bestätigung durch den Besitzer)
 1. Tag-3-APK testen (Feedback, Fehler beheben), dazu WAV-Import (A2) und Lock-Folge-Verhalten (B5).
 2. **Automation 2.0** (B1 bis B4): größter Hebel, trägt P-Locks, Wavetable-Position, Arp-Muster und Modulator.
@@ -364,6 +382,7 @@ Reihenfolge innerhalb, weil jeder Schritt auf dem vorigen aufbaut:
 4. **Klang-Ausbau** (A1 Warp, A3 Modulator/MSEG, A4) und Trance Delay (3g).
 5. **Arbeitsfluss** (D1 bis D7), in kleinen Paketen zwischen den großen Themen eingestreut (D1, D2 sind schnell fertig).
 6. Haptik (D6) früh anfangen, weil sie viele andere Punkte (Scrollleiste, Regler) verbessert.
+7. Zum Schluss, auf Wunsch des Besitzers erst später: Sampler-Umbau mit Dateimanager-Drop (E2) zusammen mit C4/D3, danach der Desktop-/DeX-Modus (E1).
 
 ### Quellen der Recherche
 - Android-Stift: [Stylus input](https://developer.android.com/develop/ui/views/touch-and-input/stylus-input/advanced-stylus-features)
