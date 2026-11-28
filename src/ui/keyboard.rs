@@ -2,7 +2,9 @@
 
 use std::ops::RangeInclusive;
 
-use eframe::egui::{self, Align2, Color32, Id, Mesh, Pos2, Rangef, Rect, Sense, Shape, vec2};
+use eframe::egui::{
+    self, Align2, Color32, CornerRadius, Id, Mesh, Pos2, Rangef, Rect, Sense, Shape, vec2,
+};
 
 use crate::metrics::Metrics;
 use crate::settings::Settings;
@@ -466,6 +468,17 @@ fn paint(
     let fill = |r: Rect, color: Color32| painter.rect_filled(r / ppp, 0.0, color);
     let shaded = cx.theme.options.key_shadow;
     let text_ink = colors.text.to_color32();
+    // A shaded keyboard's gap between two keys (0.09 U) and its keys' rounded lower corners (0.14 U), in points.
+    let gap = 0.09 * u / ppp;
+    let foot = {
+        let r = (0.14 * u / ppp).round().clamp(2.0, 14.0) as u8;
+        CornerRadius {
+            nw: 0,
+            ne: 0,
+            sw: r,
+            se: r,
+        }
+    };
     let p = |midi: u8| press[usize::from(midi)].clamp(0.0, 1.0);
     let mix = |c: Color32, midi: u8| c.lerp_to_gamma(channel, p(midi));
     let is_root = |midi: u8| input.enabled && midi % 12 == input.lock.map_or(0, |l| l.0);
@@ -499,11 +512,16 @@ fn paint(
             } else {
                 white_off
             };
+            if shaded {
+                // The raised look: a small gap between the keys, rounded lower corners, a faint shade; no hard separators.
+                let (body, upper) = (apart(r.body / ppp, gap), apart(r.upper / ppp, gap));
+                painter.rect_filled(body, foot, mix(a, midi));
+                painter.rect_filled(upper, 0.0, mix(b, midi));
+                shade::key(painter, upper);
+                continue;
+            }
             fill(r.body, mix(a, midi));
             fill(r.upper, mix(b, midi));
-            if shaded {
-                shade::key(painter, r.body / ppp);
-            }
             for sep in r.seps {
                 fill(sep, bg);
             }
@@ -513,12 +531,16 @@ fn paint(
             let (label, color) = if key.black {
                 let r = black_px(x(key), y, u, p(midi));
                 let b = if range { black } else { black_off };
-                fill(r.body, mix(if root { channel } else { b }, midi));
-                if range || sounding >> midi & 1 == 1 {
-                    fill(r.border, bg);
-                    fill(r.inner, mix(b, midi));
-                    if shaded {
-                        shade::key(painter, r.inner / ppp);
+                if shaded {
+                    // One rounded key with the gap round it: no border and no lip of another colour at its foot.
+                    let body = apart(r.body / ppp, gap);
+                    painter.rect_filled(body, foot, mix(if root { channel } else { b }, midi));
+                    shade::key(painter, body.with_max_y(body.bottom() - f32::from(foot.sw)));
+                } else {
+                    fill(r.body, mix(if root { channel } else { b }, midi));
+                    if range || sounding >> midi & 1 == 1 {
+                        fill(r.border, bg);
+                        fill(r.inner, mix(b, midi));
                     }
                 }
                 let fill = if root { channel } else { b };
@@ -571,6 +593,11 @@ fn readable(ink: Color32, fill: Color32, others: [Color32; 2]) -> Color32 {
     } else {
         others[1]
     }
+}
+
+/// `rect` narrowed by `gap` in all (half on each side): the room between two neighbouring keys of the shaded keyboard.
+fn apart(rect: Rect, gap: f32) -> Rect {
+    rect.shrink2(vec2(gap / 2.0, 0.0))
 }
 
 /// `rect` filled with a vertical gradient from `top` to `bottom` (premultiplied colours, so a white and a black alpha
@@ -2198,16 +2225,24 @@ mod tests {
                 .iter()
                 .filter(|c| matches!(c.shape, Shape::Mesh(_)))
                 .count();
-            (rects, meshes)
+            let rounded = shapes
+                .iter()
+                .filter(|c| matches!(&c.shape, Shape::Rect(r) if r.corner_radius.sw > 0))
+                .count();
+            (rects, meshes, rounded)
         };
-        let (flat_rects, flat_meshes) = meshes(false);
-        let (shaded_rects, shaded_meshes) = meshes(true);
+        let (flat_rects, flat_meshes, flat_rounded) = meshes(false);
+        let (shaded_rects, shaded_meshes, shaded_rounded) = meshes(true);
         assert_eq!(flat_meshes, 0);
         assert!(shaded_meshes > 20, "{shaded_meshes}");
-        assert_eq!(
-            flat_rects, shaded_rects,
-            "the same rectangles, the shades go over them"
+        // The shaded keys have no hard separators and no bevel of another colour: fewer plain rectangles, some of them rounded
+        // at the foot; the flat keyboard has none rounded.
+        assert!(
+            shaded_rects < flat_rects,
+            "{shaded_rects} against {flat_rects}"
         );
+        assert_eq!(flat_rounded, 0);
+        assert!(shaded_rounded > 20, "{shaded_rounded}");
     }
 
     /// A label that reads on its key stays; one that does not takes the better of the theme's text and background colour.

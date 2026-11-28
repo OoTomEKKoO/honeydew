@@ -315,6 +315,8 @@ pub struct Leaf {
     pub disabled_items: &'static [usize],
     /// Tap pickers: the items in named groups, for a menu of submenus ([`widgets::Group`]).
     pub groups: &'static [widgets::Group],
+    /// Tab strips: a colour role for each tab, the selected tab's colour while the others show pale (the GM Synth's pages).
+    pub tab_accents: &'static [crate::theme::Accent],
     /// A control without a param starts at this: an item index (lists, spinners), 0 or 1 (toggles, buttons) or a
     /// normalised value. It is also what a double click resets it to.
     pub default: f32,
@@ -937,7 +939,14 @@ pub fn show(
             Widget::TextToggle => widgets::text_toggle(ui, cx, &c, value!()).changed(),
             Widget::Tabs => {
                 let names = item_names(&label);
-                let list = ItemList::new(id, rect, &names, Bar::Bottom, ink);
+                // A strip with colour roles gives each tab its own colour for the page it shows.
+                let accents: Vec<Color32> = (leaf.tab_accents.iter())
+                    .map(|a| a.color(&cx.theme.colors))
+                    .collect();
+                let list = ItemList {
+                    accents: &accents,
+                    ..ItemList::new(id, rect, &names, Bar::Bottom, ink)
+                };
                 if state.dual_tabs {
                     // Two strips: the lower one (`LOWER_TABS`) picks the lower page.
                     let lower = leaf.id == LOWER_TABS;

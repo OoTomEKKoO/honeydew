@@ -51,6 +51,7 @@ fn control(id: u32, widget: Widget, label: &'static str) -> Part {
         column_len: None,
         disabled_items: &[],
         groups: &[],
+        tab_accents: &[],
         default: 0.0,
         colors: None,
         shape: 1.0,
@@ -321,6 +322,11 @@ impl Part {
     /// Spinners and menu buttons: `len` items per popup column, filled top to bottom (the Arpeggiator's `Arp`: 8).
     pub fn items_per_column(self, len: usize) -> Self {
         self.with_leaf(|l| l.column_len = Some(len))
+    }
+
+    /// Tab strips: a colour role per tab ([`crate::panels::Leaf::tab_accents`]).
+    pub fn accents(self, accents: &'static [crate::theme::Accent]) -> Self {
+        self.with_leaf(|l| l.tab_accents = accents)
     }
 
     /// Tap pickers: the items in named groups, a menu of submenus (the GM Synth's oscillator shapes).

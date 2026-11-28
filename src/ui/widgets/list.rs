@@ -36,6 +36,9 @@ pub enum Bar {
     Boxed,
 }
 
+/// How pale the items that are not selected are drawn in a list with [`ItemList::accents`]: `text` at this alpha.
+const PALE: f32 = 0.5;
+
 /// A list: `items` are the labels, `headers` the indices of the header items.
 #[derive(Clone, Copy, Debug)]
 pub struct ItemList<'a> {
@@ -50,6 +53,9 @@ pub struct ItemList<'a> {
     pub disabled: bool,
     /// The tab selector look (see the module doc).
     pub tabs: bool,
+    /// A colour for each item (Honeydew change): the selected item takes its own colour for text and bar, and the others are
+    /// drawn pale in `text`, as if engraved, instead of the channel colour. Empty: the usual colours.
+    pub accents: &'a [Color32],
 }
 
 impl<'a> ItemList<'a> {
@@ -63,6 +69,7 @@ impl<'a> ItemList<'a> {
             channel,
             disabled: false,
             tabs: false,
+            accents: &[],
         }
     }
 }
@@ -190,6 +197,7 @@ pub fn item_list_index(ui: &mut Ui, cx: &UiCtx, list: &ItemList, selected: &mut 
         .flatten();
 
     let (text, menu_fill) = (colors.text.to_color32(), colors.menu_fill.to_color32());
+    let accent = |i: usize| list.accents.get(i).copied();
     let painter = ui.painter();
     let hover = (response.hover_pos())
         .filter(|_| list.tabs && hovered(ui, &response))
@@ -211,7 +219,7 @@ pub fn item_list_index(ui: &mut Ui, cx: &UiCtx, list: &ItemList, selected: &mut 
         let boxed = list.bar == Bar::Boxed;
         if (is_selected || !boxed) && cell.bar.is_positive() {
             let fill = if is_selected && !boxed {
-                text
+                accent(i).unwrap_or(text)
             } else {
                 menu_fill
             };
@@ -223,7 +231,11 @@ pub fn item_list_index(ui: &mut Ui, cx: &UiCtx, list: &ItemList, selected: &mut 
             FontSize::Pt10
         };
         // Plain text: an item wider than its cell overhangs it; a tab selector's is truncated.
-        let ink = if is_selected { text } else { list.channel };
+        let ink = match (is_selected, list.accents.is_empty()) {
+            (true, _) => accent(i).unwrap_or(text),
+            (false, true) => list.channel,
+            (false, false) => text.gamma_multiply(PALE),
+        };
         let (at, font) = (Align2::CENTER_CENTER, m.font_id(font));
         if list.tabs {
             truncated(painter, cell.text, at, label, font, ink, TAIL);

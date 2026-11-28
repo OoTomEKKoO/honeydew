@@ -925,6 +925,55 @@ fn the_modulation_ring_shows_on_classic_and_arc_knobs_with_its_live_dot() {
     }
 }
 
+/// A tab strip with colour roles: the selected tab's text and bar take its own colour, the others show pale in the text colour.
+#[test]
+fn a_tab_strip_with_accents_colours_the_selected_tab_and_shows_the_rest_pale() {
+    let index = Cell::new(1usize);
+    let accents = [
+        Color32::YELLOW,
+        Color32::GREEN,
+        Color32::LIGHT_BLUE,
+        Color32::RED,
+    ];
+    let mut bench = Bench::new(|ui, cx| {
+        let list = ItemList {
+            accents: &accents,
+            ..ItemList::new(Id::new("fx"), TABS, &FX, Bar::Bottom, Color32::RED)
+        };
+        let mut i = index.get();
+        let response = item_list_index(ui, cx, &list, &mut i);
+        index.set(i);
+        response
+    });
+    let text = colors().text.to_color32();
+    let runs = text_runs(&bench.shapes);
+    let colours: Vec<_> = runs.iter().map(|r| (r.0.as_str(), r.1)).collect();
+    assert_eq!(
+        colours,
+        [
+            ("DIST", text.gamma_multiply(0.5)),
+            ("DELAY", Color32::GREEN),
+            ("CHORUS", text.gamma_multiply(0.5)),
+            ("PHASER", text.gamma_multiply(0.5)),
+        ]
+    );
+    // The bar under the selected tab is its colour. A tap on another tab moves both.
+    assert!(
+        fills_in(&bench.shapes, TABS)
+            .iter()
+            .any(|f| f.0 == Color32::GREEN)
+    );
+    bench.click(pos2(TABS.left() + 64.0 * 3.5, TABS.center().y));
+    assert_eq!(index.get(), 3);
+    bench.frame(vec![]);
+    let colours: Vec<_> = text_runs(&bench.shapes)
+        .iter()
+        .map(|r| (r.0.clone(), r.1))
+        .collect();
+    assert_eq!(colours[3], ("PHASER".to_owned(), Color32::RED));
+    assert_eq!(colours[1].1, text.gamma_multiply(0.5));
+}
+
 #[test]
 fn a_boxed_list_boxes_the_selected_cell_in_menu_fill_inset_2t_and_draws_no_bars() {
     let index = Cell::new(1usize);

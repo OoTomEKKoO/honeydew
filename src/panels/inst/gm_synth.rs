@@ -46,6 +46,19 @@ const SOURCE_GROUPS: &[widgets::Group] = &[
     ("Table: Digital", &[34, 35, 37, 38]),
 ];
 
+/// The colour of each page's tab, in the tabs' order: the selected tab shows its page's colour, the others pale.
+const TAB_ACCENTS: &[Accent] = &[
+    Accent::Level,
+    Accent::Osc,
+    Accent::Mod,
+    Accent::Filter,
+    Accent::Envelope,
+    Accent::Lfo,
+    Accent::Lfo,
+    Accent::Level,
+    Accent::Fx,
+];
+
 const TABS: &str = "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX";
 
 /// The sources and targets of Honeydew's free modulation routes (a `CSTM` setting each, see
@@ -126,8 +139,8 @@ pub fn panel() -> Option<Panel> {
     // on top of what it shows, the knobs under it (input below, as on a phone's keyboard), and the menus and switches
     // stacked at the right edge. Each page has its accent ([`Accent`]).
     Some(Panel::new(pager(
-        tabs(0, TABS).h(Size::U(1.25)),
-        tabs(LOWER_TABS, TABS).h(Size::U(1.25)),
+        tabs(0, TABS).accents(TAB_ACCENTS).h(Size::U(1.25)),
+        tabs(LOWER_TABS, TABS).accents(TAB_ACCENTS).h(Size::U(1.25)),
         vec![
             // LEVEL
             tint(
@@ -165,6 +178,11 @@ pub fn panel() -> Option<Panel> {
                             .margins(0.1, 0.1, 0.1, 0.1),
                     ])
                     .h(Size::Flex(1.9)),
+                    // Honeydew's own position knobs sit under their oscillator's picture: where its wavetable is read.
+                    knobs(
+                        [knob(27000, "POS A").p(75), knob(28000, "POS B").p(76)],
+                        1.0,
+                    ),
                     knobs(
                         [
                             knob(22000, "PITCH B").p(11),
@@ -172,11 +190,8 @@ pub fn panel() -> Option<Panel> {
                             knob(24000, "PHASE B").p(14),
                             knob(25000, "BALANCE").p(13),
                             knob(26000, "NOISE").p(20),
-                            // Honeydew's own: where a wavetable is read, per oscillator.
-                            knob(27000, "POS A").p(75),
-                            knob(28000, "POS B").p(76),
                         ],
-                        1.5,
+                        1.3,
                     ),
                 ]),
                 Accent::Osc,
@@ -308,22 +323,25 @@ pub fn panel() -> Option<Panel> {
                 Accent::Lfo,
             ),
             // VOICES
-            with_side(
-                knobs(
+            tint(
+                with_side(
+                    knobs(
+                        [
+                            knob(71000, "TRNSP").p(28),
+                            knob(72000, "SLIDE").p(29),
+                            knob(73000, "CHOIR DTN").p(44),
+                            knob(74000, "CHOIR STR").p(45),
+                        ],
+                        1.0,
+                    ),
                     [
-                        knob(71000, "TRNSP").p(28),
-                        knob(72000, "SLIDE").p(29),
-                        knob(73000, "CHOIR DTN").p(44),
-                        knob(74000, "CHOIR STR").p(45),
+                        text_toggle(75100, "MONO").p(30),
+                        text_toggle(75200, "AUTO").p(31),
+                        spinner(76100, "VOICES").p(42).compact(),
+                        spinner(76200, "SCALE").p(43).compact(),
                     ],
-                    1.0,
                 ),
-                [
-                    text_toggle(75100, "MONO").p(30),
-                    text_toggle(75200, "AUTO").p(31),
-                    spinner(76100, "VOICES").p(42).compact(),
-                    spinner(76200, "SCALE").p(43).compact(),
-                ],
+                Accent::Level,
             ),
             tint(fx(), Accent::Fx),
         ],
@@ -1190,15 +1208,15 @@ pub const REFERENCE: Reference = Reference {
                 row(16200, Widget::Spinner, "KIND", [13.27, 3.56, 3.69, 2.13]).p(23).ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(16300, Widget::Spinner, "EXTRA", [13.27, 5.81, 3.69, 2.13]).items("Off · BP · Notch · Comb").ink(Ink::Accent(Accent::Filter)).margins(0.06, 0.0, 0.06, 0.0),
                 row(1, Widget::Tabs, "LEVEL · OSC · MOD · FILTER · EG · LFO · MATRIX · VOICES · FX", [0.00, 8.00, 16.96, 1.25]).h(Size::U(1.25)),
-                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 3.57]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 13.02, 2.42, 2.97]).p(11).ink(Ink::Accent(Accent::Osc)),
-                row(23000, Widget::Knob, "FINE B", [2.42, 13.02, 2.42, 2.97]).p(12).ink(Ink::Accent(Accent::Osc)),
-                row(24000, Widget::Knob, "PHASE B", [4.84, 13.02, 2.42, 2.97]).p(14).ink(Ink::Accent(Accent::Osc)),
-                row(25000, Widget::Knob, "BALANCE", [7.26, 13.02, 2.43, 2.97]).p(13).ink(Ink::Accent(Accent::Osc)),
-                row(26000, Widget::Knob, "NOISE", [9.69, 13.02, 2.42, 2.97]).p(20).ink(Ink::Accent(Accent::Osc)),
-                row(27000, Widget::Knob, "POS A", [12.11, 13.02, 2.42, 2.97]).p(75).ink(Ink::Accent(Accent::Osc)),
-                row(28000, Widget::Knob, "POS B", [14.53, 13.02, 2.43, 2.97]).p(76).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 9.35, 8.28, 2.85]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 9.35, 8.28, 2.85]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(27000, Widget::Knob, "POS A", [0.00, 12.30, 8.48, 1.61]).p(75).ink(Ink::Accent(Accent::Osc)),
+                row(28000, Widget::Knob, "POS B", [8.48, 12.30, 8.48, 1.61]).p(76).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 13.91, 3.39, 2.09]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [3.39, 13.91, 3.39, 2.09]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 13.91, 3.39, 2.09]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 13.91, 3.39, 2.09]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [13.56, 13.91, 3.40, 2.09]).p(20).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -1207,15 +1225,15 @@ pub const REFERENCE: Reference = Reference {
             tab: 1,
             rows: &[
                 STRIP,
-                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 3.28]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
-                row(22000, Widget::Knob, "PITCH B", [0.00, 4.73, 2.42, 2.76]).p(11).ink(Ink::Accent(Accent::Osc)),
-                row(23000, Widget::Knob, "FINE B", [2.42, 4.73, 2.42, 2.76]).p(12).ink(Ink::Accent(Accent::Osc)),
-                row(24000, Widget::Knob, "PHASE B", [4.84, 4.73, 2.42, 2.76]).p(14).ink(Ink::Accent(Accent::Osc)),
-                row(25000, Widget::Knob, "BALANCE", [7.26, 4.73, 2.43, 2.76]).p(13).ink(Ink::Accent(Accent::Osc)),
-                row(26000, Widget::Knob, "NOISE", [9.69, 4.73, 2.42, 2.76]).p(20).ink(Ink::Accent(Accent::Osc)),
-                row(27000, Widget::Knob, "POS A", [12.11, 4.73, 2.42, 2.76]).p(75).ink(Ink::Accent(Accent::Osc)),
-                row(28000, Widget::Knob, "POS B", [14.53, 4.73, 2.43, 2.76]).p(76).ink(Ink::Accent(Accent::Osc)),
+                row(21100, Widget::Spinner, "A", [0.10, 1.35, 8.28, 2.62]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(21200, Widget::Spinner, "B", [8.58, 1.35, 8.28, 2.62]).items(SHAPES).items_per_column(10).margins(0.1, 0.1, 0.1, 0.1).ink(Ink::Accent(Accent::Osc)),
+                row(27000, Widget::Knob, "POS A", [0.00, 4.07, 8.48, 1.48]).p(75).ink(Ink::Accent(Accent::Osc)),
+                row(28000, Widget::Knob, "POS B", [8.48, 4.07, 8.48, 1.48]).p(76).ink(Ink::Accent(Accent::Osc)),
+                row(22000, Widget::Knob, "PITCH B", [0.00, 5.55, 3.39, 1.94]).p(11).ink(Ink::Accent(Accent::Osc)),
+                row(23000, Widget::Knob, "FINE B", [3.39, 5.55, 3.39, 1.94]).p(12).ink(Ink::Accent(Accent::Osc)),
+                row(24000, Widget::Knob, "PHASE B", [6.78, 5.55, 3.39, 1.94]).p(14).ink(Ink::Accent(Accent::Osc)),
+                row(25000, Widget::Knob, "BALANCE", [10.17, 5.55, 3.39, 1.94]).p(13).ink(Ink::Accent(Accent::Osc)),
+                row(26000, Widget::Knob, "NOISE", [13.56, 5.55, 3.40, 1.94]).p(20).ink(Ink::Accent(Accent::Osc)),
             ],
             ..Case::DEFAULT
         },
@@ -1329,14 +1347,14 @@ pub const REFERENCE: Reference = Reference {
             tab: 7,
             rows: &[
                 STRIP,
-                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 3.31, 6.24]).p(28),
-                row(72000, Widget::Knob, "SLIDE", [3.31, 1.25, 3.32, 6.24]).p(29),
-                row(73000, Widget::Knob, "CHOIR DTN", [6.63, 1.25, 3.32, 6.24]).p(44),
-                row(74000, Widget::Knob, "CHOIR STR", [9.95, 1.25, 3.32, 6.24]).p(45),
-                row(75100, Widget::TextToggle, "MONO", [13.27, 1.31, 3.69, 1.44]).p(30).margins(0.06, 0.0, 0.06, 0.0),
-                row(75200, Widget::TextToggle, "AUTO", [13.27, 2.87, 3.69, 1.44]).p(31).margins(0.06, 0.0, 0.06, 0.0),
-                row(76100, Widget::Spinner, "VOICES", [13.27, 4.43, 3.69, 1.44]).p(42).margins(0.06, 0.0, 0.06, 0.0),
-                row(76200, Widget::Spinner, "SCALE", [13.27, 5.99, 3.69, 1.44]).p(43).margins(0.06, 0.0, 0.06, 0.0),
+                row(71000, Widget::Knob, "TRNSP", [0.00, 1.25, 3.31, 6.24]).p(28).ink(Ink::Accent(Accent::Level)),
+                row(72000, Widget::Knob, "SLIDE", [3.31, 1.25, 3.32, 6.24]).p(29).ink(Ink::Accent(Accent::Level)),
+                row(73000, Widget::Knob, "CHOIR DTN", [6.63, 1.25, 3.32, 6.24]).p(44).ink(Ink::Accent(Accent::Level)),
+                row(74000, Widget::Knob, "CHOIR STR", [9.95, 1.25, 3.32, 6.24]).p(45).ink(Ink::Accent(Accent::Level)),
+                row(75100, Widget::TextToggle, "MONO", [13.27, 1.31, 3.69, 1.44]).p(30).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Level)),
+                row(75200, Widget::TextToggle, "AUTO", [13.27, 2.87, 3.69, 1.44]).p(31).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Level)),
+                row(76100, Widget::Spinner, "VOICES", [13.27, 4.43, 3.69, 1.44]).p(42).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Level)),
+                row(76200, Widget::Spinner, "SCALE", [13.27, 5.99, 3.69, 1.44]).p(43).margins(0.06, 0.0, 0.06, 0.0).ink(Ink::Accent(Accent::Level)),
             ],
             ..Case::DEFAULT
         },
