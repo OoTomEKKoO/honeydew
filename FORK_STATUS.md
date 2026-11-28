@@ -8,8 +8,8 @@ Architektur; diese Datei den Stand. Nach jedem Schritt hier nachtragen. Stand: E
 - Letzter bewährter Build: Commit `7162300` (Graphite-Theme, Wavetables, Matrix, P-Locks, Untermenüs). Rücksprung-Punkte und die
   Anleitung zum Zurückgehen: **`STAENDE.md`**.
 - Lokal in Arbeit, noch nicht gebaut (siehe 3k): Regler im Bogen-Stil mit massivem Körper (Wert nur in der Drag-Blase), Aufräumen.
-- Als Nächstes (Plan steht in 4f): **Automation zeichnen mit dem S-Pen und direkt in der Zeitleiste bearbeiten**; danach WAV-Import
-  (4e Teil C).
+- Als Nächstes (Reihenfolge vom Besitzer entschieden, Plan in 4e/4f): **1. WAV-Import** (4e Teil C), **2. Zeichenmodus im Automations-Editor**
+  (Finger und Stift, Glatt/Stepped), **3. Automation in der Zeitleiste bearbeiten**, zunächst nur mit Punkten.
 - Regel: nichts bauen, bevor der Besitzer es freigibt; zwischendurch kurze Zwischenstände.
 
 ## 1. Worum es geht
@@ -507,7 +507,10 @@ Wunsch des Besitzers: Automation mit dem S-Pen frei am Raster zeichnen, mit eine
   (d) Auswahl und Zwischenablage. Je Stufe Tests (Geometrie, Gesten), ein Commit, vorher Skizze mit dem Besitzer.
 
 **Reihenfolge und Aufwand:** Teil 1 zuerst (M, sofort nützlich mit dem Stift), dann Teil 2 (Stift-Erkennung, S bis M; Latch-Schalter M), dann Teil 3 in Stufen (L).
-Offene Entscheidungen für den Besitzer: siehe das Fragen-Panel dieser Sitzung (Zeichenstil-Standard, Stift-Erkennung, Reihenfolge).
+**Entschieden vom Besitzer (Tag 4):** (1) Zeichenstil: **Glatt** als Standard, **Stepped** als Schalter. (2) **Keine Stift-Erkennung nötig**: im Zeichenmodus zeichnet
+auch der Finger, der Modus wird per Schalter aktiviert (Teil 2 entfällt bis auf optionale Glättung durch Historienpunkte). (3) Reihenfolge: **erst der WAV-Import**
+(4e Teil C), **dann** das Zeichnen im Automations-Editor (Teil 1, nur im geöffneten Automations-Panel), **dann** die Bearbeitung in der Zeitleiste, dort **zunächst nur
+mit Punkten** (Teil 3 ohne Zeichenmodus; Zeichnen in der Zeitleiste später).
 
 ## 5. Offene Fragen / noch nicht beurteilt vom Besitzer
 
