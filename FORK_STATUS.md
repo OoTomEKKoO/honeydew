@@ -199,6 +199,20 @@ kleinen abgerundeten Blase am Finger (Honeydew #171, `widgets/bubble.rs`). Umset
 mehr; beim Ziehen zeigt die vorhandene Blase den Wert (Einstellung "Show value while dragging" gilt). Klassische Regler unverändert.
 Aufgeräumt: `PanelState.inspect` ohne ungenutzte Position, `page_lfo_on` durch `page_range` ersetzt (Hinweis für LFO- und EG-Seite).
 
+## 3l. Paket 6, Teil 1: Design-Feinschliff nach dem Screenshot (Tag 4, Nachmittag, lokal gebaut, noch nicht als APK)
+
+Rückmeldung zum Screenshot der APK `f9471bc` und Umsetzung:
+- **Festhängende Spektrum-Bänder in den Höhen**: eigener Fehler. Die Live-Werte der Regler-Ringe liegen im selben Datenblock direkt hinter den 96
+  Bändern, die Filteranzeige zeichnete sie als zusätzliche Balken. Jetzt `gmsynth::live_bands` (genau die Bänder), Test dagegen.
+- **OSC-Seite**: POS A und POS B stehen unter ihrem Oszillator-Bild, darunter die fünf übrigen Regler.
+- **Tastatur** (Graphite): Tasten einzeln abgerundet (untere Ecken) mit schmalem Spalt dazwischen (0,09 U), ohne den hellen Rand/Fuß der Tasten.
+- **Tabs**: der gewählte Tab zeigt Text und Unterlinie in der Farbe seiner Seite (Level blau, Osc gelb, Mod orange, Filter türkis, EG grün, LFO/Matrix lila,
+  Voices blau, FX pink), die anderen blass in der Textfarbe (`ItemList.accents`).
+- **Menüs**: neuer Theme-Schalter `roomyMenus` (an in Graphite): abgerundete Ecken, höhere Zeilen (1,6 U), größere Schrift (12 pt, Überschriften 14 pt),
+  abgerundete eingerückte Bänder für aktuellen und berührten Eintrag. Gilt für alle Popup-Menüs der App (gemeinsamer Code `ui/popup.rs`); die anderen
+  Themes behalten die alten Menüs.
+Offen in Paket 6: WAV-Import, Zeichenmodus im Automations-Editor.
+
 ## 4. Offen (in der Reihenfolge, die ich empfehle; Besitzer hat die Wünsche genannt)
 
 **A. (ERLEDIGT, siehe 3b) Anbindung „Instrument → Oberfläche" (Spektrum und LFO-Phase)** – ursprünglich Voraussetzung für zwei Wünsche:
