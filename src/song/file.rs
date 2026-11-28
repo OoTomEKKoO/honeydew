@@ -379,6 +379,61 @@ impl Default for ChannelFileState {
     }
 }
 
+/// A wavetable a GM Synth oscillator took from a file (Honeydew's own, an `HDWt` in the module): the frames, one after another
+/// as 16-bit values of `frame_len` points each, so the song holds the table and needs no file. `key` identifies the content
+/// (one hash, made when the table is) for the engine's and the pictures' shared tables.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableData {
+    /// The file's name without its extension, for the oscillator's caption.
+    pub name: String,
+    pub frame_len: u16,
+    pub data: std::sync::Arc<[i16]>,
+    pub key: u64,
+}
+
+impl TableData {
+    /// The most points a table keeps (256 frames of 2048), and the fewest a frame has.
+    pub const MAX_POINTS: usize = 256 * 2048;
+
+    /// A table of `data` (frames of `frame_len` points), named `name`; `None` for no whole frame, a frame under 2 points
+    /// or one over 65535, or more than [`Self::MAX_POINTS`] points.
+    pub fn new(name: &str, frame_len: usize, data: Vec<i16>) -> Option<Self> {
+        let whole = data.len() / frame_len.max(1) * frame_len.max(1);
+        if !(2..=usize::from(u16::MAX)).contains(&frame_len)
+            || whole == 0
+            || whole > Self::MAX_POINTS
+        {
+            return None;
+        }
+        let data: std::sync::Arc<[i16]> = data[..whole].into();
+        // FNV-1a over the frame length and the values: the same table is the same key, in any song.
+        let mut key: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in (frame_len as u32)
+            .to_le_bytes()
+            .into_iter()
+            .chain(data.iter().flat_map(|v| v.to_le_bytes()))
+        {
+            key = (key ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+        Some(Self {
+            name: name.chars().take(64).collect(),
+            frame_len: frame_len as u16,
+            data,
+            key,
+        })
+    }
+
+    /// The frames as cycles.
+    pub fn cycles(&self) -> Vec<Vec<f32>> {
+        honeydew_audio::wavetable::dequantize(&self.data, usize::from(self.frame_len))
+    }
+
+    /// How many frames it has.
+    pub fn frames(&self) -> usize {
+        self.data.len() / usize::from(self.frame_len.max(1))
+    }
+}
+
 /// `RMOd` chunks beyond the module model. `SMPR` is always written with 3 values (older 2-value ones load
 /// with the default Wet Pan).
 #[derive(Clone, Debug, PartialEq)]
@@ -419,6 +474,10 @@ pub struct ModuleFileState {
     pub program_reset: Option<[f32; 2]>,
     /// A plugin module's plugin and state ([`super::plugin`]); `None` on every other module.
     pub plugin: Option<Box<super::plugin::PluginRef>>,
+    /// A GM Synth's wavetables from files, one for each oscillator (`HDWt`), shown when its menu item is `Custom`.
+    pub tables: [Option<TableData>; 2],
+    /// Which oscillator the sample picker open for this module fills (0 `A`, 1 `B`): UI state, not in the file.
+    pub table_target: u8,
 }
 
 impl Default for ModuleFileState {
@@ -441,6 +500,8 @@ impl Default for ModuleFileState {
             program_init: None,
             program_reset: None,
             plugin: None,
+            tables: [None, None],
+            table_target: 0,
         }
     }
 }

@@ -148,6 +148,60 @@ impl FrameTable {
     }
 }
 
+/// The frame lengths a file is tried in, longest first ([`cycles_from_samples`]).
+pub const FRAME_LENGTHS: [usize; 4] = [2048, 1024, 512, 256];
+/// The longest file read as one single cycle when its length fits no frame length.
+const SINGLE_CYCLE_MAX: usize = 4096;
+
+/// The cycles of a wavetable file's `samples` (a mono mix), as frames of `frame_len` points, or of the length the file's
+/// size suggests (`None`: the longest of [`FRAME_LENGTHS`] that divides it, as Serum and Vital tables are 2048 a frame;
+/// a file that fits none and is at most [`SINGLE_CYCLE_MAX`] points long is one single cycle; a longer one is cut into
+/// frames of 2048 and the rest dropped). `None` for a file shorter than two points or with a value that is not a number.
+pub fn cycles_from_samples(samples: &[f32], frame_len: Option<usize>) -> Option<Vec<Vec<f32>>> {
+    if samples.len() < 2 || samples.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let len = match frame_len {
+        Some(n) => n.clamp(2, samples.len()),
+        None => FRAME_LENGTHS
+            .into_iter()
+            .find(|&n| samples.len() >= n && samples.len() % n == 0)
+            .unwrap_or(if samples.len() <= SINGLE_CYCLE_MAX {
+                samples.len()
+            } else {
+                FRAME_LEN
+            }),
+    };
+    let frames: Vec<Vec<f32>> = samples
+        .chunks_exact(len)
+        .take(MAX_FRAMES)
+        .map(<[f32]>::to_vec)
+        .collect();
+    (!frames.is_empty()).then_some(frames)
+}
+
+/// `cycles` as 16-bit values, one frame after another (the song keeps a file's table this way): full scale is ±1, a value
+/// past it is clipped.
+pub fn quantize(cycles: &[Vec<f32>]) -> Vec<i16> {
+    cycles
+        .iter()
+        .flatten()
+        .map(|&v| (v.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16)
+        .collect()
+}
+
+/// [`quantize`]'s data as cycles of `frame_len` points (a rest shorter than a frame is dropped).
+pub fn dequantize(data: &[i16], frame_len: usize) -> Vec<Vec<f32>> {
+    data.chunks_exact(frame_len.max(2))
+        .take(MAX_FRAMES)
+        .map(|c| {
+            c.iter()
+                .map(|&v| f32::from(v) / f32::from(i16::MAX))
+                .collect()
+        })
+        .collect()
+}
+
 /// `cycle` as [`FRAME_LEN`] points: the cycle read at evenly spaced phases, linear and wrapping. DC is not removed
 /// here (the spectrum drops it).
 fn resample(cycle: &[f32]) -> Vec<f64> {
@@ -381,6 +435,69 @@ mod tests {
         assert!(step < FRAME_RMS * 1.5 * 0.0031 * 2.0, "{step}");
         // The seam: the last phase before the turn and the first after it are neighbours.
         assert!((pair.read(u32::MAX) - pair.read(0)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_files_frames_follow_its_length_or_its_given_frame_size() {
+        let wave = |n: usize| {
+            (0..n)
+                .map(|i| (i as f32 / n as f32).sin())
+                .collect::<Vec<f32>>()
+        };
+        // 4 × 2048: four frames of 2048, as Serum tables are.
+        let four = cycles_from_samples(&wave(4 * 2048), None).unwrap();
+        assert_eq!((four.len(), four[0].len()), (4, 2048));
+        // 3 × 1024 divides by 1024 only: three frames of 1024. 512 alone: one frame of 512.
+        assert_eq!(cycles_from_samples(&wave(3 * 1024), None).unwrap().len(), 3);
+        let one = cycles_from_samples(&wave(512), None).unwrap();
+        assert_eq!((one.len(), one[0].len()), (1, 512));
+        // A length that fits no frame size is one single cycle when short, and cut into 2048s when long.
+        let odd = cycles_from_samples(&wave(1000), None).unwrap();
+        assert_eq!((odd.len(), odd[0].len()), (1, 1000));
+        let long = cycles_from_samples(&wave(10_000), None).unwrap();
+        assert_eq!((long.len(), long[0].len()), (4, 2048));
+        // A given size cuts the file by it (the rest dropped), and never past the file.
+        assert_eq!(
+            cycles_from_samples(&wave(2500), Some(500)).unwrap().len(),
+            5
+        );
+        assert_eq!(
+            cycles_from_samples(&wave(100), Some(4096)).unwrap().len(),
+            1
+        );
+        // Too many frames are cut at the table's limit; bad files make none.
+        assert_eq!(
+            cycles_from_samples(&wave(300 * 256), Some(256))
+                .unwrap()
+                .len(),
+            MAX_FRAMES
+        );
+        assert!(cycles_from_samples(&[0.5], None).is_none());
+        assert!(cycles_from_samples(&[0.0, f32::NAN, 0.1], None).is_none());
+        assert!(cycles_from_samples(&[], None).is_none());
+        // Whatever comes out builds into a table.
+        assert!(
+            FrameTable::from_cycles(&four).is_some() && FrameTable::from_cycles(&odd).is_some()
+        );
+    }
+
+    #[test]
+    fn quantizing_keeps_a_table_to_16_bits_and_clips_past_full_scale() {
+        let cycles = vec![vec![0.0, 0.5, -0.5, 1.0], vec![2.0, -3.0, 0.25, -1.0]];
+        let data = quantize(&cycles);
+        assert_eq!(data.len(), 8);
+        let back = dequantize(&data, 4);
+        assert_eq!(back.len(), 2);
+        let worst = cycles
+            .iter()
+            .flatten()
+            .zip(back.iter().flatten())
+            .map(|(a, b)| (a.clamp(-1.0, 1.0) - b).abs())
+            .fold(0.0, f32::max);
+        assert!(worst < 1e-4, "{worst}");
+        // A rest shorter than a frame is dropped.
+        assert_eq!(dequantize(&data[..7], 4).len(), 1);
+        assert!(dequantize(&[], 4).is_empty());
     }
 
     #[test]

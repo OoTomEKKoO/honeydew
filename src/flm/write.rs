@@ -346,6 +346,24 @@ fn write_module_body(writer: &mut ChunkWriter, module: &ModuleInstance) -> Resul
     {
         write_plugin(writer, plugin)?;
     }
+    // Honeydew's wavetables a GM Synth took from files: an `HDWt` each, which a reader that does not know it skips as an
+    // unknown chunk (and plays the oscillator silent while its menu says `Custom`). u8 oscillator, u16 frame length,
+    // u16 name length, the name, and the 16-bit values.
+    for (osc, table) in
+        (module.file.tables.iter().enumerate()).filter_map(|(i, t)| Some((i, t.as_ref()?)))
+    {
+        writer.chunk(*b"HDWt", |writer| {
+            writer.u8(osc as u8)?;
+            writer.u16(table.frame_len)?;
+            let name = table.name.as_bytes();
+            writer.u16(name.len() as u16)?;
+            writer.raw(name)?;
+            for value in table.data.iter() {
+                writer.raw(&value.to_le_bytes())?;
+            }
+            Ok(())
+        })?;
+    }
     write_raw(writer, &module.file.unknown_chunks)
 }
 

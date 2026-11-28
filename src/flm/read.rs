@@ -845,6 +845,13 @@ impl Reader {
                     check_cstm(type_id, child.payload, &child.path)?;
                     module.file.custom_data = Some(child.payload.to_vec());
                 }
+                // A GM Synth's wavetable from a file; one that does not read is skipped (the oscillator is silent).
+                b"HDWt" if type_id == 2 => {
+                    self.charge(child.payload.len(), &child.path)?;
+                    if let Some((osc, table)) = table_chunk(child.payload) {
+                        module.file.tables[osc] = Some(table);
+                    }
+                }
                 b"PLUG" if plugin::is_plugin(type_id) => {
                     let state = module
                         .file
@@ -1152,6 +1159,28 @@ impl Reader {
         }
         Ok(clip)
     }
+}
+
+/// An `HDWt` (`flm::write`): the oscillator (0 or 1) and its table; `None` for a chunk that is cut short, names another
+/// oscillator, or holds no whole frame.
+fn table_chunk(payload: &[u8]) -> Option<(usize, crate::song::TableData)> {
+    let (&osc, rest) = payload.split_first()?;
+    let (frame_len, rest) = rest.split_first_chunk::<2>()?;
+    let (name_len, rest) = rest.split_first_chunk::<2>()?;
+    let name_len = usize::from(u16::from_le_bytes(*name_len));
+    let (name, values) = (rest.get(..name_len)?, rest.get(name_len..)?);
+    let data: Vec<i16> = values
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
+        .collect();
+    let table = crate::song::TableData::new(
+        &String::from_utf8_lossy(name),
+        usize::from(u16::from_le_bytes(*frame_len)),
+        data,
+    )?;
+    (osc < 2).then_some((usize::from(osc), table))
 }
 
 /// An `HDLk` (`flm::write`): 20-byte records of u32 tick, u8 key, 3 reserved bytes, i32 instance id, i32 param, f32
@@ -1562,6 +1591,45 @@ fn settle_routing(channels: &mut [Channel], last_send_bus: &mut i32) {
         .collect();
     for channel in channels.iter_mut() {
         channel.output_bus = crate::song::output_bus(&channel.file.sends, &buses);
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::*;
+
+    fn chunk(osc: u8, frame_len: u16, name: &str, values: &[i16]) -> Vec<u8> {
+        let mut p = vec![osc];
+        p.extend(frame_len.to_le_bytes());
+        p.extend((name.len() as u16).to_le_bytes());
+        p.extend(name.as_bytes());
+        values.iter().for_each(|v| p.extend(v.to_le_bytes()));
+        p
+    }
+
+    #[test]
+    fn a_damaged_table_chunk_reads_as_nothing_and_a_good_one_as_its_table() {
+        let (osc, table) = table_chunk(&chunk(1, 4, "Pad", &[1, 2, 3, 4, 5, 6, 7, 8, 9])).unwrap();
+        assert_eq!(
+            (osc, table.name.as_str(), table.frame_len, table.frames()),
+            (1, "Pad", 4, 2)
+        );
+        assert!(
+            table_chunk(&chunk(2, 4, "x", &[1, 2, 3, 4])).is_none(),
+            "no third oscillator"
+        );
+        assert!(
+            table_chunk(&chunk(0, 4, "x", &[1, 2, 3])).is_none(),
+            "no whole frame"
+        );
+        assert!(
+            table_chunk(&chunk(0, 1, "x", &[1, 2, 3, 4])).is_none(),
+            "a frame needs two points"
+        );
+        let mut cut = chunk(0, 4, "name", &[1, 2, 3, 4]);
+        cut.truncate(6);
+        assert!(table_chunk(&cut).is_none(), "cut inside the name");
+        assert!(table_chunk(&[]).is_none() && table_chunk(&[0, 1]).is_none());
     }
 }
 

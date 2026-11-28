@@ -2201,6 +2201,58 @@ fn parameter_locks_round_trip_through_flm_and_a_song_without_any_writes_the_same
 }
 
 #[test]
+fn gm_synth_wavetables_round_trip_through_flm_and_a_song_without_any_writes_the_same_bytes() {
+    let mut song = Song::default();
+    song.add_channel(ChannelKind::Synth(SynthKind::GmSynth));
+    let plain = crate::flm::write(&song).unwrap();
+    assert!(!plain.windows(4).any(|w| w == b"HDWt"));
+    let frames: Vec<i16> = (0..4 * 256)
+        .map(|i| ((i * 37) % 2000) as i16 - 1000)
+        .collect();
+    let a = TableData::new("Bright Pad", 256, frames.clone()).unwrap();
+    let b = TableData::new("Äh", 128, frames[..512].to_vec()).unwrap();
+    assert_eq!((a.frames(), b.frames()), (4, 4));
+    song.channels[1].rack.modules[0].file.tables = [Some(a.clone()), Some(b.clone())];
+    let bytes = crate::flm::write(&song).unwrap();
+    assert_eq!(bytes.windows(4).filter(|w| *w == b"HDWt").count(), 2);
+    let read = crate::flm::read(&bytes).unwrap();
+    assert_eq!(
+        read.channels[1].rack.modules[0].file.tables,
+        [Some(a), Some(b)]
+    );
+    // One oscillator alone, and none, write as before.
+    song.channels[1].rack.modules[0].file.tables[1] = None;
+    let one = crate::flm::read(&crate::flm::write(&song).unwrap()).unwrap();
+    assert!(one.channels[1].rack.modules[0].file.tables[1].is_none());
+    song.channels[1].rack.modules[0].file.tables[0] = None;
+    assert_eq!(crate::flm::write(&song).unwrap(), plain);
+}
+
+#[test]
+fn table_data_refuses_what_is_no_whole_frame_and_keys_its_content() {
+    assert!(
+        TableData::new("x", 1, vec![0; 8]).is_none(),
+        "a frame needs two points"
+    );
+    assert!(
+        TableData::new("x", 64, vec![0; 63]).is_none(),
+        "no whole frame"
+    );
+    assert!(
+        TableData::new("x", 64, vec![0; TableData::MAX_POINTS + 64]).is_none(),
+        "too long"
+    );
+    let t = TableData::new("x", 4, vec![1, 2, 3, 4, 5]).unwrap();
+    assert_eq!(t.data.len(), 4, "the rest is dropped");
+    let same = TableData::new("other name", 4, vec![1, 2, 3, 4]).unwrap();
+    let other = TableData::new("x", 4, vec![1, 2, 3, 5]).unwrap();
+    let longer = TableData::new("x", 2, vec![1, 2, 3, 4]).unwrap();
+    assert_eq!(t.key, same.key, "the same content, whatever it is called");
+    assert_ne!(t.key, other.key);
+    assert_ne!(t.key, longer.key, "the frame length is part of it");
+}
+
+#[test]
 fn midi_sends_are_saved_apart_and_go_with_their_target() {
     // An `HDMs`, which FL Studio Mobile skips as an unknown chunk, only on a channel with MIDI sends.
     let mut song = Song::default();
