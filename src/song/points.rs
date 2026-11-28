@@ -178,6 +178,132 @@ pub fn value_at_row(r: f64, max: u16) -> u16 {
     (max - r * max / LAST_ROW + 1e-6).trunc().clamp(0.0, max) as u16
 }
 
+/// How a drawn stroke becomes points ([`drawn`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Draw {
+    /// The stroke thinned to few points ([`SMOOTH_TOLERANCE`]), so that a clip never holds one point for each sample.
+    Smooth,
+    /// A staircase: one level for each step of this many ticks, held to the next (the value under the middle of the step).
+    Stepped(u32),
+}
+
+/// How far (as a fraction of the value range) a smooth stroke may stray from the line through its thinned points.
+pub const SMOOTH_TOLERANCE: f64 = 1.0 / 200.0;
+
+/// The points of a clip once the stroke `stroke` (content tick and value of each sample the finger or pen left, in the order
+/// it did) is drawn over `pts`: the points inside the stroke's span are replaced by the new ones, those outside stay.
+/// Between two samples the stroke runs straight, and where it passes a tick twice the later sample wins, so a stroke
+/// drawn back over itself replaces what it covered. Ticks run from 0 to `limit` (the loop's end); `max` is the top value.
+/// `None` for a stroke of no sample. A stroke of one sample is a single point (a tap).
+pub fn drawn(
+    pts: &[Point],
+    stroke: &[(f64, u16)],
+    style: Draw,
+    limit: u32,
+    max: u16,
+) -> Option<Vec<Point>> {
+    use std::collections::BTreeMap;
+    let clamp = |t: f64| t.round().clamp(0.0, f64::from(limit)) as u32;
+    let first = stroke.first()?;
+    // The curve at every tick it covers: segment by segment, later ones over earlier ones.
+    let mut curve: BTreeMap<u32, f64> = BTreeMap::new();
+    curve.insert(clamp(first.0), f64::from(first.1));
+    for pair in stroke.windows(2) {
+        let ((t0, v0), (t1, v1)) = (
+            (clamp(pair[0].0), f64::from(pair[0].1)),
+            (clamp(pair[1].0), f64::from(pair[1].1)),
+        );
+        let span = t1.abs_diff(t0).max(1);
+        for k in 0..=span {
+            let tick = if t1 >= t0 { t0 + k } else { t0 - k };
+            curve.insert(tick, v0 + (v1 - v0) * f64::from(k) / f64::from(span));
+        }
+    }
+    let (start, end) = (*curve.keys().next()?, *curve.keys().next_back()?);
+    let value = |tick: u32| -> u16 {
+        // The curve's value at `tick`, or at the nearest tick it covers.
+        let at = curve
+            .range(tick..)
+            .next()
+            .or_else(|| curve.range(..tick).next_back())
+            .map_or(0.0, |(_, v)| *v);
+        at.round().clamp(0.0, f64::from(max)) as u16
+    };
+    let mut made: Vec<Point> = Vec::new();
+    match style {
+        Draw::Smooth => {
+            let dense: Vec<(u32, f64)> = curve.iter().map(|(&t, &v)| (t, v)).collect();
+            for i in thin(&dense, SMOOTH_TOLERANCE * f64::from(max)) {
+                made.push(Point {
+                    tick: dense[i].0,
+                    value: dense[i].1.round().clamp(0.0, f64::from(max)) as u16,
+                    ..Point::default()
+                });
+            }
+        }
+        Draw::Stepped(step) => {
+            let step = step.max(1);
+            let mut from = start / step * step;
+            // At least one step, even for a tap, and never past the clip.
+            let last = (end.div_ceil(step) * step).max(from + step);
+            while from < last && from <= limit {
+                let to = from + step;
+                let v = value((from + step / 2).clamp(start, end));
+                made.push(Point {
+                    tick: from.min(limit),
+                    value: v,
+                    ..Point::default()
+                });
+                // The level holds to just before the next step, which then jumps a tick later.
+                if step > 1 && to - 1 > from && to - 1 <= limit {
+                    made.push(Point {
+                        tick: to - 1,
+                        value: v,
+                        ..Point::default()
+                    });
+                }
+                from = to;
+            }
+        }
+    }
+    let (lo, hi) = (made.first()?.tick, made.last()?.tick);
+    let mut out: Vec<Point> = (pts.iter())
+        .filter(|p| p.tick < lo || p.tick > hi)
+        .copied()
+        .collect();
+    out.extend(made);
+    out.sort_by_key(|p| p.tick);
+    out.dedup_by_key(|p| p.tick);
+    Some(out)
+}
+
+/// The indices of the points of the polyline `dense` (ticks rising) that stay when it is thinned so that no point lies
+/// farther than `tolerance` from the line between its neighbours that stay (Ramer-Douglas-Peucker); the ends always stay.
+fn thin(dense: &[(u32, f64)], tolerance: f64) -> Vec<usize> {
+    if dense.len() < 3 {
+        return (0..dense.len()).collect();
+    }
+    let mut keep = vec![false; dense.len()];
+    (keep[0], keep[dense.len() - 1]) = (true, true);
+    let mut todo = vec![(0, dense.len() - 1)];
+    while let Some((a, b)) = todo.pop() {
+        let ((ta, va), (tb, vb)) = (dense[a], dense[b]);
+        let (mut far, mut at) = (0.0, None);
+        for (i, &(t, v)) in dense.iter().enumerate().take(b).skip(a + 1) {
+            let line = va + (vb - va) * f64::from(t - ta) / f64::from((tb - ta).max(1));
+            let off = (v - line).abs();
+            if off > far {
+                (far, at) = (off, Some(i));
+            }
+        }
+        if let Some(i) = at.filter(|_| far > tolerance) {
+            keep[i] = true;
+            todo.extend([(a, i), (i, b)]);
+        }
+    }
+    (0..dense.len()).filter(|&i| keep[i]).collect()
+}
+
 /// Inserts `p` after every point at or before its tick; returns its index.
 pub fn insert(pts: &mut Vec<Point>, p: Point) -> usize {
     let i = pts.partition_point(|q| q.tick <= p.tick);

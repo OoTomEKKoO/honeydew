@@ -1532,3 +1532,68 @@ fn with_value_snap_at_10_percent_a_dragged_point_lands_on_a_line_and_off_it_move
     assert_eq!(rig.points(), [p(256, 39893)]);
     assert!((0..=10).all(|k| line(k) != 39893));
 }
+
+// ---- draw mode ----
+
+#[test]
+fn in_draw_mode_a_stroke_draws_a_curve_as_one_edit_and_a_tap_draws_one_point() {
+    let mut rig = Rig::new(&[p(0, 100), p(150, 200), p(300, 200)]);
+    rig.ed.draw = true;
+    // A stroke across the grid, level in the middle: one edit, the old points under it replaced, rising ticks.
+    let y = TOP + V / 2.0;
+    rig.drag(
+        pos2(GRID_X + 40.0, y),
+        &[
+            vec2(60.0, 0.0),
+            vec2(120.0, 0.0),
+            vec2(180.0, 0.0),
+            vec2(250.0, 0.0),
+        ],
+    );
+    assert_eq!(rig.edits, 1, "one undo step");
+    let pts = rig.points();
+    assert!(
+        pts.len() >= 2 && pts.windows(2).all(|w| w[0].tick < w[1].tick),
+        "{pts:?}"
+    );
+    assert!(
+        pts.iter().all(|q| q.tick != 150),
+        "the point under the stroke is gone: {pts:?}"
+    );
+    let level = pts[1].value;
+    assert!(
+        (pts.iter().filter(|q| (40..=290).contains(&q.tick)))
+            .all(|q| q.value.abs_diff(level) < 2000),
+        "a level stroke: {pts:?}"
+    );
+    assert!(rig.selected().iter().all(|s| !*s));
+    // A tap is one point, not the marquee or a pan.
+    let mut rig = Rig::new(&[]);
+    rig.ed.draw = true;
+    rig.tap(pos2(GRID_X + 70.0, TOP + 20.0));
+    assert_eq!((rig.points().len(), rig.edits), (1, 1));
+    // Draw mode off: the same drag is no stroke.
+    let mut rig = Rig::new(&[]);
+    rig.drag(
+        pos2(GRID_X + 40.0, y),
+        &[vec2(100.0, 0.0), vec2(200.0, 0.0)],
+    );
+    assert_eq!(rig.edits, 0);
+}
+
+#[test]
+fn the_mode_chips_switch_draw_and_steps() {
+    let mut rig = Rig::new(&[]);
+    let chip = rig.text_at("Points").expect("the mode chip shows");
+    rig.tap(chip);
+    assert!(rig.ed.draw && !rig.ed.stepped);
+    let style = rig
+        .text_at("Smooth")
+        .expect("the style chip shows in draw mode");
+    rig.tap(style);
+    assert!(rig.ed.stepped);
+    assert!(rig.text_at("Steps").is_some());
+    let mode = rig.text_at("Draw").unwrap();
+    rig.tap(mode);
+    assert!(!rig.ed.draw);
+}

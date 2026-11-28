@@ -235,6 +235,8 @@ enum Gesture {
     /// The marquee from a long press, or at once with Shift: its selection is live; a stationary hold offers Paste.
     Box(Marquee),
     Drag(Drag),
+    /// A stroke drawn in draw mode: the content ticks and values the finger passed, in order.
+    Stroke(Vec<(f64, u16)>),
 }
 
 /// A point (or the ↔ bar) held: the points as they were, recomputed from the finger every frame.
@@ -295,6 +297,11 @@ pub struct AutomationEditor {
     typing: Option<String>,
     /// The `Set shape` popup, while open ([`shape`]).
     shaping: Option<shape::Shaping>,
+    /// Draw mode (a Honeydew addition): a finger or pen drawing over the grid draws a curve instead of panning, selecting
+    /// or moving; a switch, with no pen detection, so a finger draws too.
+    draw: bool,
+    /// A drawn stroke becomes steps (one level per grid step) instead of a smooth curve.
+    stepped: bool,
 }
 
 /// The clip `key` names, on an automation lane.
@@ -447,7 +454,8 @@ impl AutomationEditor {
         // The gestures.
         let grid = ui.interact(f.grid, id().with("grid"), Sense::click_and_drag());
         crate::ui::focus::register(ui, grid.id, grid.rect, crate::ui::focus::Kind::Container);
-        let edit = self.input(ui, &grid, &f, ax, &pts, snap, m, now);
+        let limit = (loop_beats * f64::from(PPQ)) as u32;
+        let edit = self.input(ui, &grid, &f, ax, &pts, snap, limit, m, now);
         // A release's edit shows at once.
         if let Some((new, sel)) = edit {
             out.edited = self.commit(song, key, new, sel, b);
@@ -680,6 +688,7 @@ impl AutomationEditor {
             None => {}
         }
         self.snap_menu(ui, f.snap, cx, target.steps().is_some());
+        self.mode_chips(ui, f.grid, color, cx);
         // After the menus, which take Escape first.
         if let Some(new) = self.keys(ui, &pts, snap, now) {
             edit = Some(new);
@@ -761,6 +770,7 @@ impl AutomationEditor {
         ax: TimeAxis,
         pts: &[Point],
         snap: Option<f64>,
+        limit: u32,
         m: &Metrics,
         now: f64,
     ) -> Option<Edit> {
@@ -814,6 +824,12 @@ impl AutomationEditor {
                 })
             };
             self.gesture = match target {
+                _ if self.draw && !shift => {
+                    // Draw mode: the touch is a stroke, whatever lies under it; the scroller keeps off.
+                    self.sel.fill(false);
+                    self.scroller.yield_touch();
+                    Gesture::Stroke(Vec::new())
+                }
                 _ if shift => Gesture::Box(Marquee::at(p, true)),
                 Some((i, scale)) => {
                     // The point becomes the cursor target.
@@ -917,6 +933,33 @@ impl AutomationEditor {
                                 self.sel = (0..pts.len()).map(|j| Some(j) == point).collect();
                             }
                         }
+                    }
+                }
+            }
+            Gesture::Stroke(mut stroke) => {
+                self.scroller.yield_touch();
+                if let Some(p) = pos {
+                    let sample = (ax.tick(p.x), points::value_at_row(f.row_at(p.y), max));
+                    if stroke.last() != Some(&sample) {
+                        stroke.push(sample);
+                    }
+                }
+                if down {
+                    ui.ctx().request_repaint();
+                    self.gesture = Gesture::Stroke(stroke);
+                } else {
+                    // The release: the stroke replaces the points under it, as one undo step.
+                    let style = match self.stepped {
+                        // A step is the snap grid, a sixteenth without one.
+                        true => points::Draw::Stepped(
+                            snap.map_or(PPQ / 4, |s| s.round().max(1.0) as u32),
+                        ),
+                        false => points::Draw::Smooth,
+                    };
+                    if let Some(new) = points::drawn(pts, &stroke, style, limit, max) {
+                        let n = new.len();
+                        self.pop(&new, &vec![false; n], now);
+                        edit = Some((new, vec![false; n]));
                     }
                 }
             }
@@ -1142,6 +1185,14 @@ impl AutomationEditor {
         if let Some(rect) = marquee {
             paint_marquee(&gp, rect, cx);
         }
+        // The stroke being drawn, as the finger passed.
+        if let Gesture::Stroke(stroke) = &self.gesture {
+            let line: Vec<Pos2> = stroke
+                .iter()
+                .map(|&(t, v)| pos2(ax.x(t), f.point_y(v, KEY.max())))
+                .collect();
+            gp.add(eframe::egui::Shape::line(line, Stroke::new(m.u(0.3), text)));
+        }
         // The values of the selected points (a drag's live) and of the hovered one, in the target's units.
         let mut taken = Vec::new();
         for (i, (q, &s)) in pts.iter().zip(sel).enumerate() {
@@ -1333,6 +1384,52 @@ impl AutomationEditor {
             self.typing = Some(text);
         }
         edit
+    }
+
+    /// The floating mode chips at the grid's top right (after the grid, so they take their touches): `Points` or `Draw`,
+    /// and, in draw mode, `Smooth` or `Steps`. A tap switches; the touch never reaches the grid.
+    fn mode_chips(&mut self, ui: &mut Ui, grid: Rect, ink: Color32, cx: &UiCtx) {
+        let (m, c) = (cx.m, &cx.theme.colors);
+        let (u, text) = (m.u(1.0), c.text.to_color32());
+        let labels: Vec<(&str, bool, &str)> = if self.draw {
+            vec![
+                ("Draw", true, "mode"),
+                (
+                    if self.stepped { "Steps" } else { "Smooth" },
+                    self.stepped,
+                    "style",
+                ),
+            ]
+        } else {
+            vec![("Points", false, "mode")]
+        };
+        let (w, h, gap) = (u * 4.5, u * 1.8, u * 0.4);
+        let mut x = grid.right() - gap;
+        for (label, on, name) in labels.into_iter().rev() {
+            let rect = Rect::from_min_size(pos2(x - w, grid.top() + gap), vec2(w, h));
+            x = rect.left() - gap;
+            let r = ui.interact(rect, id().with(("chip", name)), Sense::click());
+            let painter = ui.painter_at(rect.expand(1.0));
+            let fill = if on {
+                ink
+            } else {
+                c.control_fill.to_color32().gamma_multiply(0.85)
+            };
+            painter.rect_filled(rect, h / 2.0, fill);
+            painter.text(
+                rect.center(),
+                eframe::egui::Align2::CENTER_CENTER,
+                label,
+                m.font_id(FontSize::Pt10),
+                if on { c.background.to_color32() } else { text },
+            );
+            if r.clicked() {
+                match name {
+                    "mode" => self.draw = !self.draw,
+                    _ => self.stepped = !self.stepped,
+                }
+            }
+        }
     }
 
     /// The Snap button in `cell` ([`widgets::snap_button`]): a tap toggles snap, a long press or a right click opens

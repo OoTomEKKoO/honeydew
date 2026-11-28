@@ -593,3 +593,131 @@ fn trim_keeps_only_the_range_from_zero() {
     trim(&mut pts, 0, 512, 512);
     assert_eq!(pts, ramp());
 }
+
+// Drawing: a stroke over the points.
+
+fn at(tick: u32, value: u16) -> Point {
+    Point {
+        tick,
+        value,
+        ..Point::default()
+    }
+}
+
+/// The value a polyline of `pts` has at `tick` (straight between points, level outside).
+fn line_at(pts: &[Point], tick: u32) -> f64 {
+    let i = pts.partition_point(|p| p.tick <= tick);
+    match (i.checked_sub(1).map(|j| pts[j]), pts.get(i)) {
+        (Some(a), Some(b)) => {
+            f64::from(a.value)
+                + f64::from(i32::from(b.value) - i32::from(a.value)) * f64::from(tick - a.tick)
+                    / f64::from(b.tick - a.tick)
+        }
+        (Some(a), None) => f64::from(a.value),
+        (None, Some(b)) => f64::from(b.value),
+        _ => 0.0,
+    }
+}
+
+#[test]
+fn a_straight_stroke_is_two_points_and_a_curve_stays_within_the_tolerance() {
+    let max = 65534;
+    let ramp = [(0.0, 0), (512.0, max)];
+    let got = drawn(&[], &ramp, Draw::Smooth, 1024, max).unwrap();
+    assert_eq!(
+        got.iter().map(|p| (p.tick, p.value)).collect::<Vec<_>>(),
+        [(0, 0), (512, max)]
+    );
+    // A wave drawn as 400 samples: far fewer points, none of the stroke farther off than the tolerance.
+    let wave: Vec<(f64, u16)> = (0..=400)
+        .map(|i| {
+            let t = f64::from(i) * 2.0;
+            (t, (32767.0 + 30000.0 * (t / 120.0).sin()) as u16)
+        })
+        .collect();
+    let got = drawn(&[], &wave, Draw::Smooth, 1024, max).unwrap();
+    assert!(got.len() < 100 && got.len() > 8, "{}", got.len());
+    let tolerance = SMOOTH_TOLERANCE * f64::from(max) * 1.5;
+    for &(t, v) in &wave {
+        assert!(
+            (line_at(&got, t as u32) - f64::from(v)).abs() <= tolerance,
+            "tick {t}"
+        );
+    }
+}
+
+#[test]
+fn a_stroke_replaces_the_points_under_it_and_keeps_the_others_and_later_samples_win() {
+    let max = 65534;
+    let old = [
+        at(0, 100),
+        at(100, 200),
+        at(200, 300),
+        at(300, 400),
+        at(400, 500),
+    ];
+    let got = drawn(
+        &old,
+        &[(150.0, 60000), (350.0, 60000)],
+        Draw::Smooth,
+        1024,
+        max,
+    )
+    .unwrap();
+    let ticks: Vec<_> = got.iter().map(|p| p.tick).collect();
+    assert_eq!(
+        ticks,
+        [0, 100, 150, 350, 400],
+        "200 and 300 are under the stroke and gone"
+    );
+    assert_eq!(got[2].value, 60000);
+    // A stroke back over itself: the later pass wins at the ticks they share.
+    let back = [(0.0, 1000), (100.0, 1000), (100.0, 50000), (0.0, 50000)];
+    let got = drawn(&[], &back, Draw::Smooth, 1024, max).unwrap();
+    assert!(
+        got.iter().all(|p| p.value == 50000 || p.tick == 100),
+        "{got:?}"
+    );
+    assert_eq!(line_at(&got, 50), 50000.0);
+}
+
+#[test]
+fn a_stepped_stroke_is_a_staircase_of_level_pairs_one_to_each_step() {
+    let max = 65534;
+    let ramp = [(0.0, 0), (128.0, max)];
+    let got = drawn(&[], &ramp, Draw::Stepped(32), 1024, max).unwrap();
+    // Four steps of 32 ticks (0, 32, 64, 96, and the end 128 closes the last): each a level from its start to a tick before the next.
+    let levels: Vec<(u32, u16)> = got.iter().map(|p| (p.tick, p.value)).collect();
+    assert!(levels.len() >= 8, "{levels:?}");
+    for pair in levels.chunks(2).take(4) {
+        assert_eq!(pair[0].1, pair[1].1, "a level holds: {pair:?}");
+        assert_eq!(pair[1].0 - pair[0].0, 31);
+    }
+    assert!(
+        levels.windows(2).all(|w| w[0].1 <= w[1].1),
+        "rising: {levels:?}"
+    );
+    assert!(levels[0].1 < levels[6].1);
+}
+
+#[test]
+fn edge_cases_of_drawing_make_sense() {
+    let max = 65534;
+    assert_eq!(drawn(&[at(5, 5)], &[], Draw::Smooth, 100, max), None);
+    // A tap is one point; ticks and values are clamped to the clip and the range.
+    let tap = drawn(&[], &[(40.0, 1000)], Draw::Smooth, 100, max).unwrap();
+    assert_eq!((tap.len(), tap[0].tick, tap[0].value), (1, 40, 1000));
+    let over = drawn(&[], &[(-30.0, 10), (500.0, 65535)], Draw::Smooth, 100, max).unwrap();
+    assert!(over.iter().all(|p| p.tick <= 100) && over.iter().all(|p| p.value <= max));
+    assert_eq!(over.first().unwrap().tick, 0);
+    // The result is sorted with one point to a tick.
+    let got = drawn(
+        &[at(0, 1), at(50, 2)],
+        &[(10.0, 5), (10.0, 6), (20.0, 7)],
+        Draw::Smooth,
+        100,
+        max,
+    )
+    .unwrap();
+    assert!(got.windows(2).all(|w| w[0].tick < w[1].tick), "{got:?}");
+}
